@@ -1,28 +1,37 @@
-# README - Setup Instructions
+# Todoist-Google Tasks Sync Tool
 
-## Prepare your environment
+This program syncs priority tasks and tasks with specific labels from Todoist to Google Tasks.
+It maintains bidirectional sync and propagates completion status between platforms.
 
-# Create a virtual environment
+Requirements:
+- pip install todoist-api-python google-api-python-client google-auth-oauthlib google-auth-httplib2
+
+Setup:
+1. Get Todoist API token from https://todoist.com/prefs/integrations
+2. Set up Google Tasks API credentials (see README section below)
+3. Configure sync settings in the script
+
+## Detailed instructions
+
+### Prepare your environment
+
+1. Create a virtual environment
 python3 -m venv todoist-sync-env
 
-# Activate it
+2. Activate virtual environment
 source todoist-sync-env/bin/activate
 
-# Install packages
+3. Install dependencies
 pip install todoist-api-python google-api-python-client google-auth-oauthlib google-auth-httplib2
 
-# Run your script
+4. Run the script once to create sync_config.json
 python todoist_gtasks_sync.py --once
 
-
-1. Install dependencies:
-   pip install todoist-api-python google-api-python-client google-auth-oauthlib google-auth-httplib2
-
-2. Get Todoist API Token:
+5. Get Todoist API Token:
    - Go to https://todoist.com/prefs/integrations
    - Copy your API token
 
-3. Set up Google Tasks API:
+6. Set up Google Tasks API:
    - Go to Google Cloud Console (console.cloud.google.com)
    - Create a new project or select existing one
    - Enable the Google Tasks API
@@ -30,12 +39,11 @@ python todoist_gtasks_sync.py --once
    - Choose "Desktop application"
    - Download the JSON file and save as "credentials.json"
 
-4. Configure the script:
-   - Run the script once to create sync_config.json
+7. Configure the script:
    - Edit sync_config.json with your Todoist token
    - Adjust sync settings as needed
 
-5. Run the script:
+8. Run the script:
    - First run: python todoist_gtasks_sync.py --once
    - Continuous sync: python todoist_gtasks_sync.py
 
