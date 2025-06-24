@@ -16,6 +16,7 @@ Setup:
 import json
 import os
 import logging
+import sys
 from datetime import datetime, timezone
 from typing import List, Optional
 import time
@@ -27,12 +28,45 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# Configure logging with custom handlers
+class StdoutHandler(logging.StreamHandler):
+    """Handler that only processes INFO and WARNING messages to stdout."""
+    def __init__(self):
+        super().__init__(sys.stdout)
+    
+    def emit(self, record):
+        if record.levelno in (logging.INFO, logging.WARNING):
+            super().emit(record)
+
+class StderrHandler(logging.StreamHandler):
+    """Handler that only processes ERROR and CRITICAL messages to stderr."""
+    def __init__(self):
+        super().__init__(sys.stderr)
+    
+    def emit(self, record):
+        if record.levelno >= logging.ERROR:
+            super().emit(record)
+
+# Set up logger with custom handlers
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Create formatters
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+# Create and configure handlers
+stdout_handler = StdoutHandler()
+stdout_handler.setFormatter(formatter)
+
+stderr_handler = StderrHandler()
+stderr_handler.setFormatter(formatter)
+
+# Add handlers to logger
+logger.addHandler(stdout_handler)
+logger.addHandler(stderr_handler)
+
+# Prevent duplicate messages from root logger
+logger.propagate = False
 
 class TaskSyncManager:
     """Manages synchronization between Todoist and Google Tasks."""
@@ -63,11 +97,31 @@ class TaskSyncManager:
                 logger.info(f"    Notes differ: '{gtask.get('notes', '')}' vs '{expected_notes}'")
             return True
         
-        # Compare due dates
+        # Compare due dates - prioritize deadline over due date for Todoist task
         gtask_due = gtask.get('due')
         todoist_due = None
         
-        if hasattr(todoist_task, 'due') and todoist_task.due:
+        # Check for deadline first (higher priority)
+        if hasattr(todoist_task, 'deadline') and todoist_task.deadline:
+            if isinstance(todoist_task.deadline, str):
+                if 'T' in todoist_task.deadline:
+                    todoist_due = todoist_task.deadline
+                else:
+                    todoist_due = todoist_task.deadline + "T00:00:00.000Z"
+            else:
+                # Handle deadline object - check for date attribute
+                if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
+                    if isinstance(todoist_task.deadline.date, str):
+                        todoist_due = todoist_task.deadline.date + "T00:00:00.000Z"
+                    else:
+                        todoist_due = todoist_task.deadline.date.strftime("%Y-%m-%dT00:00:00.000Z")
+                elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
+                    todoist_due = todoist_task.deadline.datetime
+                else:
+                    # Convert deadline object to string if possible
+                    todoist_due = str(todoist_task.deadline) + "T00:00:00.000Z" if 'T' not in str(todoist_task.deadline) else str(todoist_task.deadline)
+        # Fall back to due date if no deadline
+        elif hasattr(todoist_task, 'due') and todoist_task.due:
             if hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
                 todoist_due = todoist_task.due.datetime
             elif hasattr(todoist_task.due, 'date') and todoist_task.due.date:
@@ -230,8 +284,9 @@ class TaskSyncManager:
             logger.info(f"  Task priority: {task.priority}")
             logger.info(f"  Task labels: {getattr(task, 'labels', 'No labels attribute')}")
             
-            # Check due date and recurring status
+            # Check due date, deadline and recurring status
             due_info = getattr(task, 'due', None)
+            deadline = getattr(task, 'deadline', None)
             if due_info:
                 is_recurring = getattr(due_info, 'is_recurring', False)
                 due_date = getattr(due_info, 'date', None) or getattr(due_info, 'datetime', None)
@@ -240,15 +295,30 @@ class TaskSyncManager:
             else:
                 logger.info(f"  Due date: None")
                 logger.info(f"  Is recurring: False (no due date)")
+            
+            if deadline:
+                logger.info(f"  Deadline: {deadline}")
+            else:
+                logger.info(f"  Deadline: None")
         
-        # Check for recurring tasks with future due dates
-        if hasattr(task, 'due') and task.due and hasattr(task.due, 'is_recurring') and task.due.is_recurring:
+        # First check: Must have either due date or deadline
+        has_due_date = hasattr(task, 'due') and task.due and (
+            (hasattr(task.due, 'date') and task.due.date) or 
+            (hasattr(task.due, 'datetime') and task.due.datetime)
+        )
+        has_deadline = hasattr(task, 'deadline') and task.deadline
+        
+        if not has_due_date and not has_deadline:
             if self.verbose:
-                logger.info(f"  Task is recurring - checking due date...")
-            
-            from datetime import datetime
-            
-            due_date = None
+                logger.info(f"  Task has no due date or deadline - skipping sync")
+            return False
+        
+        # Check for tasks with future due dates (applies to all tasks, not just recurring)
+        from datetime import datetime
+        
+        due_date = None
+        # Check due date from either due or deadline
+        if hasattr(task, 'due') and task.due:
             if hasattr(task.due, 'date') and task.due.date:
                 if isinstance(task.due.date, str):
                     try:
@@ -262,25 +332,53 @@ class TaskSyncManager:
                     due_date = datetime.fromisoformat(task.due.datetime.replace('Z', '+00:00')).date()
                 except (ValueError, AttributeError):
                     due_date = None
-            
-            if due_date:
-                today = datetime.now().date()
-                days_until_due = (due_date - today).days
-                
-                if self.verbose:
-                    logger.info(f"  Due date parsed: {due_date}")
-                    logger.info(f"  Days until due: {days_until_due}")
-                
-                if days_until_due > 1:
-                    if self.verbose:
-                        logger.info(f"  Recurring task due in {days_until_due} days - skipping sync")
-                    return False
+        elif hasattr(task, 'deadline') and task.deadline:
+            # Handle deadline object - check for date attribute
+            if hasattr(task.deadline, 'date') and task.deadline.date:
+                if isinstance(task.deadline.date, str):
+                    try:
+                        due_date = datetime.strptime(task.deadline.date, '%Y-%m-%d').date()
+                    except ValueError:
+                        due_date = None
                 else:
-                    if self.verbose:
-                        logger.info(f"  Recurring task due in {days_until_due} days - will sync")
-            else:
+                    due_date = task.deadline.date
+            elif hasattr(task.deadline, 'datetime') and task.deadline.datetime:
+                try:
+                    due_date = datetime.fromisoformat(task.deadline.datetime.replace('Z', '+00:00')).date()
+                except (ValueError, AttributeError):
+                    due_date = None
+            elif isinstance(task.deadline, str):
+                try:
+                    if 'T' in task.deadline:
+                        due_date = datetime.fromisoformat(task.deadline.replace('Z', '+00:00')).date()
+                    else:
+                        due_date = datetime.strptime(task.deadline, '%Y-%m-%d').date()
+                except ValueError:
+                    due_date = None
+        
+        if due_date:
+            today = datetime.now().date()
+            days_until_due = (due_date - today).days
+            
+            is_recurring = hasattr(task, 'due') and task.due and hasattr(task.due, 'is_recurring') and task.due.is_recurring
+            
+            if self.verbose:
+                logger.info(f"  Due date parsed: {due_date}")
+                logger.info(f"  Days until due: {days_until_due}")
+                logger.info(f"  Is recurring: {is_recurring}")
+            
+            if days_until_due > 1:
+                task_type = "recurring task" if is_recurring else "task"
                 if self.verbose:
-                    logger.info(f"  Could not parse due date - will sync")
+                    logger.info(f"  {task_type.capitalize()} due in {days_until_due} days - skipping sync")
+                return False
+            else:
+                task_type = "recurring task" if is_recurring else "task"
+                if self.verbose:
+                    logger.info(f"  {task_type.capitalize()} due in {days_until_due} days - will sync")
+        else:
+            if self.verbose:
+                logger.info(f"  Could not parse due date - will sync")
         
         # Check priority (priority 4 is p1, 3 is p2, 2 is p3, 1 is p4/no priority)
         priority_check = settings.get('sync_priority_tasks', False) and task.priority >= 2
@@ -375,24 +473,45 @@ class TaskSyncManager:
                 'notes': f"Synced from Todoist\nOriginal ID: {todoist_task.id}"
             }
             
-            # Add due date if available - convert to RFC 3339 format
-            if hasattr(todoist_task, 'due') and todoist_task.due:
-                due_date = None
-                if hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
-                    # Convert datetime string to proper format
-                    due_date = todoist_task.due.datetime
-                elif hasattr(todoist_task.due, 'date') and todoist_task.due.date:
-                    # Convert date to proper format
-                    if isinstance(todoist_task.due.date, str):
-                        due_date = todoist_task.due.date + "T00:00:00.000Z"
+            # Add due date if available - prefer deadline over due date, convert to RFC 3339 format
+            effective_date = None
+            
+            # Check for deadline first (higher priority)
+            if hasattr(todoist_task, 'deadline') and todoist_task.deadline:
+                if isinstance(todoist_task.deadline, str):
+                    if 'T' in todoist_task.deadline:
+                        effective_date = todoist_task.deadline
                     else:
-                        # Handle date objects
-                        due_date = todoist_task.due.date.strftime("%Y-%m-%dT00:00:00.000Z")
+                        effective_date = todoist_task.deadline + "T00:00:00.000Z"
+                else:
+                    # Handle deadline object - check for date attribute
+                    if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
+                        if isinstance(todoist_task.deadline.date, str):
+                            effective_date = todoist_task.deadline.date + "T00:00:00.000Z"
+                        else:
+                            effective_date = todoist_task.deadline.date.strftime("%Y-%m-%dT00:00:00.000Z")
+                    elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
+                        effective_date = todoist_task.deadline.datetime
+                    else:
+                        # Convert deadline object to string if possible
+                        effective_date = str(todoist_task.deadline) + "T00:00:00.000Z" if 'T' not in str(todoist_task.deadline) else str(todoist_task.deadline)
+                if self.verbose:
+                    logger.info(f"  Using deadline: {effective_date}")
+            
+            # Fall back to due date if no deadline
+            elif hasattr(todoist_task, 'due') and todoist_task.due:
+                if hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
+                    effective_date = todoist_task.due.datetime
+                elif hasattr(todoist_task.due, 'date') and todoist_task.due.date:
+                    if isinstance(todoist_task.due.date, str):
+                        effective_date = todoist_task.due.date + "T00:00:00.000Z"
+                    else:
+                        effective_date = todoist_task.due.date.strftime("%Y-%m-%dT00:00:00.000Z")
+                if self.verbose:
+                    logger.info(f"  Using due date: {effective_date}")
                 
-                if due_date:
-                    task_body['due'] = due_date
-                    if self.verbose:
-                        logger.info(f"  Adding due date: {due_date}")
+            if effective_date:
+                task_body['due'] = effective_date
             
             if self.verbose:
                 logger.info(f"  Task body: {task_body}")
@@ -429,22 +548,45 @@ class TaskSyncManager:
                 'notes': f"Synced from Todoist\nOriginal ID: {todoist_task.id}"
             }
             
-            # Add due date if available - convert to RFC 3339 format
-            if hasattr(todoist_task, 'due') and todoist_task.due:
-                due_date = None
-                if hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
-                    # Convert datetime string to proper format
-                    due_date = todoist_task.due.datetime
-                elif hasattr(todoist_task.due, 'date') and todoist_task.due.date:
-                    # Convert date to proper format
-                    if isinstance(todoist_task.due.date, str):
-                        due_date = todoist_task.due.date + "T00:00:00.000Z"
+            # Add due date if available - prefer deadline over due date, convert to RFC 3339 format
+            effective_date = None
+            
+            # Check for deadline first (higher priority)
+            if hasattr(todoist_task, 'deadline') and todoist_task.deadline:
+                if isinstance(todoist_task.deadline, str):
+                    if 'T' in todoist_task.deadline:
+                        effective_date = todoist_task.deadline
                     else:
-                        # Handle date objects
-                        due_date = todoist_task.due.date.strftime("%Y-%m-%dT00:00:00.000Z")
+                        effective_date = todoist_task.deadline + "T00:00:00.000Z"
+                else:
+                    # Handle deadline object - check for date attribute
+                    if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
+                        if isinstance(todoist_task.deadline.date, str):
+                            effective_date = todoist_task.deadline.date + "T00:00:00.000Z"
+                        else:
+                            effective_date = todoist_task.deadline.date.strftime("%Y-%m-%dT00:00:00.000Z")
+                    elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
+                        effective_date = todoist_task.deadline.datetime
+                    else:
+                        # Convert deadline object to string if possible
+                        effective_date = str(todoist_task.deadline) + "T00:00:00.000Z" if 'T' not in str(todoist_task.deadline) else str(todoist_task.deadline)
+                if self.verbose:
+                    logger.info(f"  Using deadline: {effective_date}")
+            
+            # Fall back to due date if no deadline
+            elif hasattr(todoist_task, 'due') and todoist_task.due:
+                if hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
+                    effective_date = todoist_task.due.datetime
+                elif hasattr(todoist_task.due, 'date') and todoist_task.due.date:
+                    if isinstance(todoist_task.due.date, str):
+                        effective_date = todoist_task.due.date + "T00:00:00.000Z"
+                    else:
+                        effective_date = todoist_task.due.date.strftime("%Y-%m-%dT00:00:00.000Z")
+                if self.verbose:
+                    logger.info(f"  Using due date: {effective_date}")
                 
-                if due_date:
-                    task_body['due'] = due_date
+            if effective_date:
+                task_body['due'] = effective_date
             
             if self.verbose:
                 logger.info(f"  Updating with task body: {task_body}")
