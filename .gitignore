@@ -1,0 +1,6 @@
+credentials.json
+out
+task_mappings.json
+sync_config.json
+token.json
+todoist-sync-env/

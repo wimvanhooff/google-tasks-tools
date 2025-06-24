@@ -1,0 +1,14 @@
+{
+    "python.pythonPath": "./todoist-sync-env/bin/python",
+    "python.defaultInterpreterPath": "./todoist-sync-env/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true,
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": true,
+    "python.formatting.provider": "black",
+    "python.analysis.typeCheckingMode": "basic",
+    "files.associations": {
+        "*.py": "python"
+    }
+}
