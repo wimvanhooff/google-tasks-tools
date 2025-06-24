@@ -90,19 +90,49 @@ class TaskSyncManager:
                 logger.info(f"    Title differs: '{gtask.get('title', '')}' vs '{todoist_task.content}'")
             return True
         
-        # Compare notes (check if Todoist ID is mentioned)
+        # Compare notes - build expected notes with deadline if both due date and deadline exist
         expected_notes = f"Synced from Todoist\nOriginal ID: {todoist_task.id}"
+        
+        has_due = hasattr(todoist_task, 'due') and todoist_task.due
+        has_deadline = hasattr(todoist_task, 'deadline') and todoist_task.deadline
+        
+        if has_due and has_deadline:
+            deadline_str = ""
+            if isinstance(todoist_task.deadline, str):
+                deadline_str = todoist_task.deadline
+            else:
+                if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
+                    if isinstance(todoist_task.deadline.date, str):
+                        deadline_str = todoist_task.deadline.date
+                    else:
+                        deadline_str = todoist_task.deadline.date.strftime("%Y-%m-%d")
+                elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
+                    deadline_str = todoist_task.deadline.datetime
+                else:
+                    deadline_str = str(todoist_task.deadline)
+            
+            expected_notes += f"\nDeadline: {deadline_str}"
+        
         if gtask.get('notes', '') != expected_notes:
             if self.verbose:
                 logger.info(f"    Notes differ: '{gtask.get('notes', '')}' vs '{expected_notes}'")
             return True
         
-        # Compare due dates - prioritize deadline over due date for Todoist task
+        # Compare due dates - use due date for comparison (matching new sync logic)
         gtask_due = gtask.get('due')
         todoist_due = None
         
-        # Check for deadline first (higher priority)
-        if hasattr(todoist_task, 'deadline') and todoist_task.deadline:
+        # Extract due date for comparison (prioritize due date over deadline to match sync logic)
+        if hasattr(todoist_task, 'due') and todoist_task.due:
+            if hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
+                todoist_due = todoist_task.due.datetime
+            elif hasattr(todoist_task.due, 'date') and todoist_task.due.date:
+                if isinstance(todoist_task.due.date, str):
+                    todoist_due = todoist_task.due.date + "T00:00:00.000Z"
+                else:
+                    todoist_due = todoist_task.due.date.strftime("%Y-%m-%dT00:00:00.000Z")
+        # Fall back to deadline if no due date
+        elif hasattr(todoist_task, 'deadline') and todoist_task.deadline:
             if isinstance(todoist_task.deadline, str):
                 if 'T' in todoist_task.deadline:
                     todoist_due = todoist_task.deadline
@@ -120,15 +150,6 @@ class TaskSyncManager:
                 else:
                     # Convert deadline object to string if possible
                     todoist_due = str(todoist_task.deadline) + "T00:00:00.000Z" if 'T' not in str(todoist_task.deadline) else str(todoist_task.deadline)
-        # Fall back to due date if no deadline
-        elif hasattr(todoist_task, 'due') and todoist_task.due:
-            if hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
-                todoist_due = todoist_task.due.datetime
-            elif hasattr(todoist_task.due, 'date') and todoist_task.due.date:
-                if isinstance(todoist_task.due.date, str):
-                    todoist_due = todoist_task.due.date + "T00:00:00.000Z"
-                else:
-                    todoist_due = todoist_task.due.date.strftime("%Y-%m-%dT00:00:00.000Z")
         
         # Normalize due dates for comparison (remove timezone if present)
         if gtask_due and 'T' in gtask_due:
@@ -467,51 +488,74 @@ class TaskSyncManager:
     def create_google_task(self, todoist_task, list_id: str) -> Optional[str]:
         """Create a Google Task from Todoist task."""
         try:
-            # Prepare task body
-            task_body = {
-                'title': todoist_task.content,
-                'notes': f"Synced from Todoist\nOriginal ID: {todoist_task.id}"
-            }
+            # Prepare task body with notes
+            notes = f"Synced from Todoist\nOriginal ID: {todoist_task.id}"
             
-            # Add due date if available - prefer deadline over due date, convert to RFC 3339 format
-            effective_date = None
+            # Handle dates: use due date for Google Task, mention deadline in description
+            due_date_for_gtask = None
+            has_due = hasattr(todoist_task, 'due') and todoist_task.due
+            has_deadline = hasattr(todoist_task, 'deadline') and todoist_task.deadline
             
-            # Check for deadline first (higher priority)
-            if hasattr(todoist_task, 'deadline') and todoist_task.deadline:
-                if isinstance(todoist_task.deadline, str):
-                    if 'T' in todoist_task.deadline:
-                        effective_date = todoist_task.deadline
-                    else:
-                        effective_date = todoist_task.deadline + "T00:00:00.000Z"
-                else:
-                    # Handle deadline object - check for date attribute
-                    if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
-                        if isinstance(todoist_task.deadline.date, str):
-                            effective_date = todoist_task.deadline.date + "T00:00:00.000Z"
-                        else:
-                            effective_date = todoist_task.deadline.date.strftime("%Y-%m-%dT00:00:00.000Z")
-                    elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
-                        effective_date = todoist_task.deadline.datetime
-                    else:
-                        # Convert deadline object to string if possible
-                        effective_date = str(todoist_task.deadline) + "T00:00:00.000Z" if 'T' not in str(todoist_task.deadline) else str(todoist_task.deadline)
-                if self.verbose:
-                    logger.info(f"  Using deadline: {effective_date}")
-            
-            # Fall back to due date if no deadline
-            elif hasattr(todoist_task, 'due') and todoist_task.due:
+            # Extract due date for Google Task
+            if has_due:
                 if hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
-                    effective_date = todoist_task.due.datetime
+                    due_date_for_gtask = todoist_task.due.datetime
                 elif hasattr(todoist_task.due, 'date') and todoist_task.due.date:
                     if isinstance(todoist_task.due.date, str):
-                        effective_date = todoist_task.due.date + "T00:00:00.000Z"
+                        due_date_for_gtask = todoist_task.due.date + "T00:00:00.000Z"
                     else:
-                        effective_date = todoist_task.due.date.strftime("%Y-%m-%dT00:00:00.000Z")
+                        due_date_for_gtask = todoist_task.due.date.strftime("%Y-%m-%dT00:00:00.000Z")
                 if self.verbose:
-                    logger.info(f"  Using due date: {effective_date}")
+                    logger.info(f"  Using due date for Google Task: {due_date_for_gtask}")
+            
+            # If no due date but has deadline, use deadline for Google Task
+            elif has_deadline:
+                if isinstance(todoist_task.deadline, str):
+                    if 'T' in todoist_task.deadline:
+                        due_date_for_gtask = todoist_task.deadline
+                    else:
+                        due_date_for_gtask = todoist_task.deadline + "T00:00:00.000Z"
+                else:
+                    # Handle deadline object
+                    if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
+                        if isinstance(todoist_task.deadline.date, str):
+                            due_date_for_gtask = todoist_task.deadline.date + "T00:00:00.000Z"
+                        else:
+                            due_date_for_gtask = todoist_task.deadline.date.strftime("%Y-%m-%dT00:00:00.000Z")
+                    elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
+                        due_date_for_gtask = todoist_task.deadline.datetime
+                    else:
+                        due_date_for_gtask = str(todoist_task.deadline) + "T00:00:00.000Z" if 'T' not in str(todoist_task.deadline) else str(todoist_task.deadline)
+                if self.verbose:
+                    logger.info(f"  Using deadline for Google Task (no due date): {due_date_for_gtask}")
+            
+            # Add deadline to description if both due date and deadline exist
+            if has_due and has_deadline:
+                deadline_str = ""
+                if isinstance(todoist_task.deadline, str):
+                    deadline_str = todoist_task.deadline
+                else:
+                    if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
+                        if isinstance(todoist_task.deadline.date, str):
+                            deadline_str = todoist_task.deadline.date
+                        else:
+                            deadline_str = todoist_task.deadline.date.strftime("%Y-%m-%d")
+                    elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
+                        deadline_str = todoist_task.deadline.datetime
+                    else:
+                        deadline_str = str(todoist_task.deadline)
                 
-            if effective_date:
-                task_body['due'] = effective_date
+                notes += f"\nDeadline: {deadline_str}"
+                if self.verbose:
+                    logger.info(f"  Added deadline to description: {deadline_str}")
+            
+            task_body = {
+                'title': todoist_task.content,
+                'notes': notes
+            }
+            
+            if due_date_for_gtask:
+                task_body['due'] = due_date_for_gtask
             
             if self.verbose:
                 logger.info(f"  Task body: {task_body}")
@@ -542,51 +586,75 @@ class TaskSyncManager:
     def update_google_task(self, gtasks_id: str, todoist_task, list_id: str):
         """Update existing Google Task."""
         try:
+            # Prepare task body with notes
+            notes = f"Synced from Todoist\nOriginal ID: {todoist_task.id}"
+            
+            # Handle dates: use due date for Google Task, mention deadline in description
+            due_date_for_gtask = None
+            has_due = hasattr(todoist_task, 'due') and todoist_task.due
+            has_deadline = hasattr(todoist_task, 'deadline') and todoist_task.deadline
+            
+            # Extract due date for Google Task
+            if has_due:
+                if hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
+                    due_date_for_gtask = todoist_task.due.datetime
+                elif hasattr(todoist_task.due, 'date') and todoist_task.due.date:
+                    if isinstance(todoist_task.due.date, str):
+                        due_date_for_gtask = todoist_task.due.date + "T00:00:00.000Z"
+                    else:
+                        due_date_for_gtask = todoist_task.due.date.strftime("%Y-%m-%dT00:00:00.000Z")
+                if self.verbose:
+                    logger.info(f"  Using due date for Google Task: {due_date_for_gtask}")
+            
+            # If no due date but has deadline, use deadline for Google Task
+            elif has_deadline:
+                if isinstance(todoist_task.deadline, str):
+                    if 'T' in todoist_task.deadline:
+                        due_date_for_gtask = todoist_task.deadline
+                    else:
+                        due_date_for_gtask = todoist_task.deadline + "T00:00:00.000Z"
+                else:
+                    # Handle deadline object
+                    if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
+                        if isinstance(todoist_task.deadline.date, str):
+                            due_date_for_gtask = todoist_task.deadline.date + "T00:00:00.000Z"
+                        else:
+                            due_date_for_gtask = todoist_task.deadline.date.strftime("%Y-%m-%dT00:00:00.000Z")
+                    elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
+                        due_date_for_gtask = todoist_task.deadline.datetime
+                    else:
+                        due_date_for_gtask = str(todoist_task.deadline) + "T00:00:00.000Z" if 'T' not in str(todoist_task.deadline) else str(todoist_task.deadline)
+                if self.verbose:
+                    logger.info(f"  Using deadline for Google Task (no due date): {due_date_for_gtask}")
+            
+            # Add deadline to description if both due date and deadline exist
+            if has_due and has_deadline:
+                deadline_str = ""
+                if isinstance(todoist_task.deadline, str):
+                    deadline_str = todoist_task.deadline
+                else:
+                    if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
+                        if isinstance(todoist_task.deadline.date, str):
+                            deadline_str = todoist_task.deadline.date
+                        else:
+                            deadline_str = todoist_task.deadline.date.strftime("%Y-%m-%d")
+                    elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
+                        deadline_str = todoist_task.deadline.datetime
+                    else:
+                        deadline_str = str(todoist_task.deadline)
+                
+                notes += f"\nDeadline: {deadline_str}"
+                if self.verbose:
+                    logger.info(f"  Added deadline to description: {deadline_str}")
+            
             task_body = {
                 'id': gtasks_id,  # Google Tasks API requires the ID in the body
                 'title': todoist_task.content,
-                'notes': f"Synced from Todoist\nOriginal ID: {todoist_task.id}"
+                'notes': notes
             }
             
-            # Add due date if available - prefer deadline over due date, convert to RFC 3339 format
-            effective_date = None
-            
-            # Check for deadline first (higher priority)
-            if hasattr(todoist_task, 'deadline') and todoist_task.deadline:
-                if isinstance(todoist_task.deadline, str):
-                    if 'T' in todoist_task.deadline:
-                        effective_date = todoist_task.deadline
-                    else:
-                        effective_date = todoist_task.deadline + "T00:00:00.000Z"
-                else:
-                    # Handle deadline object - check for date attribute
-                    if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
-                        if isinstance(todoist_task.deadline.date, str):
-                            effective_date = todoist_task.deadline.date + "T00:00:00.000Z"
-                        else:
-                            effective_date = todoist_task.deadline.date.strftime("%Y-%m-%dT00:00:00.000Z")
-                    elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
-                        effective_date = todoist_task.deadline.datetime
-                    else:
-                        # Convert deadline object to string if possible
-                        effective_date = str(todoist_task.deadline) + "T00:00:00.000Z" if 'T' not in str(todoist_task.deadline) else str(todoist_task.deadline)
-                if self.verbose:
-                    logger.info(f"  Using deadline: {effective_date}")
-            
-            # Fall back to due date if no deadline
-            elif hasattr(todoist_task, 'due') and todoist_task.due:
-                if hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
-                    effective_date = todoist_task.due.datetime
-                elif hasattr(todoist_task.due, 'date') and todoist_task.due.date:
-                    if isinstance(todoist_task.due.date, str):
-                        effective_date = todoist_task.due.date + "T00:00:00.000Z"
-                    else:
-                        effective_date = todoist_task.due.date.strftime("%Y-%m-%dT00:00:00.000Z")
-                if self.verbose:
-                    logger.info(f"  Using due date: {effective_date}")
-                
-            if effective_date:
-                task_body['due'] = effective_date
+            if due_date_for_gtask:
+                task_body['due'] = due_date_for_gtask
             
             if self.verbose:
                 logger.info(f"  Updating with task body: {task_body}")
