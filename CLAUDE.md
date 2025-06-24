@@ -80,7 +80,8 @@ Main orchestrator that handles:
 
 ### Date Handling
 - Supports both Todoist `due` dates and `deadline` fields
-- Prioritizes `deadline` over `due` when both exist
+- When both exist: uses `due` date for Google Task, adds `deadline` to task description
+- When only one exists: uses available date for Google Task
 - Handles various date formats (ISO strings, date objects)
 - Normalizes dates to RFC 3339 format for Google Tasks API
 
