@@ -118,54 +118,11 @@ class TaskSyncManager:
                 logger.info(f"    Notes differ: '{gtask.get('notes', '')}' vs '{expected_notes}'")
             return True
         
-        # Compare due dates - use due date for comparison (matching new sync logic)
-        gtask_due = gtask.get('due')
-        todoist_due = None
-        
-        # Extract due date for comparison (prioritize due date over deadline to match sync logic)
-        if hasattr(todoist_task, 'due') and todoist_task.due:
-            if hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
-                todoist_due = todoist_task.due.datetime
-            elif hasattr(todoist_task.due, 'date') and todoist_task.due.date:
-                if isinstance(todoist_task.due.date, str):
-                    todoist_due = todoist_task.due.date + "T00:00:00.000Z"
-                else:
-                    todoist_due = todoist_task.due.date.strftime("%Y-%m-%dT00:00:00.000Z")
-        # Fall back to deadline if no due date
-        elif hasattr(todoist_task, 'deadline') and todoist_task.deadline:
-            if isinstance(todoist_task.deadline, str):
-                if 'T' in todoist_task.deadline:
-                    todoist_due = todoist_task.deadline
-                else:
-                    todoist_due = todoist_task.deadline + "T00:00:00.000Z"
-            else:
-                # Handle deadline object - check for date attribute
-                if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
-                    if isinstance(todoist_task.deadline.date, str):
-                        todoist_due = todoist_task.deadline.date + "T00:00:00.000Z"
-                    else:
-                        todoist_due = todoist_task.deadline.date.strftime("%Y-%m-%dT00:00:00.000Z")
-                elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
-                    todoist_due = todoist_task.deadline.datetime
-                else:
-                    # Convert deadline object to string if possible
-                    todoist_due = str(todoist_task.deadline) + "T00:00:00.000Z" if 'T' not in str(todoist_task.deadline) else str(todoist_task.deadline)
-        
-        # Normalize due dates for comparison (remove timezone if present)
-        if gtask_due and 'T' in gtask_due:
-            gtask_due_normalized = gtask_due.split('T')[0] + "T00:00:00.000Z"
-        else:
-            gtask_due_normalized = gtask_due
-            
-        if todoist_due and 'T' in todoist_due:
-            todoist_due_normalized = todoist_due.split('T')[0] + "T00:00:00.000Z"
-        else:
-            todoist_due_normalized = todoist_due
-        
-        if gtask_due_normalized != todoist_due_normalized:
-            if self.verbose:
-                logger.info(f"    Due date differs: '{gtask_due_normalized}' vs '{todoist_due_normalized}'")
-            return True
+        # Skip due date comparison to prevent overwriting Google Tasks due date changes
+        # Due dates only sync from Todoist -> Google Tasks, not the reverse
+        # This allows users to modify due dates in Google Tasks without them being reset
+        if self.verbose:
+            logger.info(f"    Skipping due date comparison (due dates don't sync Google Tasks -> Todoist)")
         
         if self.verbose:
             logger.info(f"    No differences found - skipping update")

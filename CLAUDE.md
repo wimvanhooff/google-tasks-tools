@@ -15,8 +15,9 @@ Tasks are synced from Todoist to Google Tasks if they meet ALL of the following 
    - Label-based: Tasks containing any of the configured sync labels (default: "urgent", "important", "sync")
 
 ### Sync Direction
-- **Todoist → Google Tasks**: Creates/updates Google Tasks based on eligible Todoist tasks
+- **Todoist → Google Tasks**: Creates/updates Google Tasks based on eligible Todoist tasks (title, notes, due dates)
 - **Google Tasks → Todoist**: Completion status only - when a Google Task is marked complete, the corresponding Todoist task is automatically completed
+- **Due Date Sync**: Due dates only sync from Todoist to Google Tasks. Changes made to due dates in Google Tasks are preserved and will NOT be overwritten by subsequent syncs
 
 ### Key Components
 
