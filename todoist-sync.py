@@ -127,7 +127,108 @@ class TaskSyncManager:
         if self.verbose:
             logger.info(f"    No differences found - skipping update")
         return False
-        
+
+    def _should_complete_todoist_task(self, gtask, todoist_id: str) -> bool:
+        """Check if we should complete a Todoist task based on date comparison with completed Google Task."""
+        from datetime import datetime, timezone
+
+        try:
+            # Get the current Todoist task to check its due date
+            todoist_task = self.todoist.get_task(task_id=todoist_id)
+
+            # Get Google Task due date
+            gtask_due = gtask.get('due')
+            if not gtask_due:
+                # If Google Task has no due date, allow completion
+                if self.verbose:
+                    logger.info(f"    Google Task has no due date - allowing completion")
+                return True
+
+            # Parse Google Task due date
+            try:
+                gtask_due_date = datetime.fromisoformat(gtask_due.replace('Z', '+00:00')).date()
+            except (ValueError, AttributeError):
+                # If we can't parse the Google Task date, allow completion
+                if self.verbose:
+                    logger.info(f"    Could not parse Google Task due date '{gtask_due}' - allowing completion")
+                return True
+
+            # Get Todoist task due date
+            todoist_due_date = None
+            has_due = hasattr(todoist_task, 'due') and todoist_task.due
+            has_deadline = hasattr(todoist_task, 'deadline') and todoist_task.deadline
+
+            if has_due:
+                if hasattr(todoist_task.due, 'date') and todoist_task.due.date:
+                    if isinstance(todoist_task.due.date, str):
+                        try:
+                            todoist_due_date = datetime.strptime(todoist_task.due.date, '%Y-%m-%d').date()
+                        except ValueError:
+                            pass
+                    else:
+                        todoist_due_date = todoist_task.due.date
+                elif hasattr(todoist_task.due, 'datetime') and todoist_task.due.datetime:
+                    try:
+                        todoist_due_date = datetime.fromisoformat(todoist_task.due.datetime.replace('Z', '+00:00')).date()
+                    except (ValueError, AttributeError):
+                        pass
+            elif has_deadline:
+                # Handle deadline object similar to due date
+                if hasattr(todoist_task.deadline, 'date') and todoist_task.deadline.date:
+                    if isinstance(todoist_task.deadline.date, str):
+                        try:
+                            todoist_due_date = datetime.strptime(todoist_task.deadline.date, '%Y-%m-%d').date()
+                        except ValueError:
+                            pass
+                    else:
+                        todoist_due_date = todoist_task.deadline.date
+                elif hasattr(todoist_task.deadline, 'datetime') and todoist_task.deadline.datetime:
+                    try:
+                        todoist_due_date = datetime.fromisoformat(todoist_task.deadline.datetime.replace('Z', '+00:00')).date()
+                    except (ValueError, AttributeError):
+                        pass
+                elif isinstance(todoist_task.deadline, str):
+                    try:
+                        if 'T' in todoist_task.deadline:
+                            todoist_due_date = datetime.fromisoformat(todoist_task.deadline.replace('Z', '+00:00')).date()
+                        else:
+                            todoist_due_date = datetime.strptime(todoist_task.deadline, '%Y-%m-%d').date()
+                    except ValueError:
+                        pass
+
+            if not todoist_due_date:
+                # If Todoist task has no due date, allow completion
+                if self.verbose:
+                    logger.info(f"    Todoist task has no due date - allowing completion")
+                return True
+
+            # Compare dates
+            if self.verbose:
+                logger.info(f"    Google Task due date: {gtask_due_date}")
+                logger.info(f"    Todoist task due date: {todoist_due_date}")
+
+            # Only complete if Todoist task is not significantly in the future compared to Google Task
+            # Allow completion if dates match or Todoist task is not more than 1 day after Google Task
+            days_diff = (todoist_due_date - gtask_due_date).days
+
+            if days_diff <= 1:  # Allow same day or 1 day difference
+                if self.verbose:
+                    logger.info(f"    Date difference: {days_diff} days - allowing completion")
+                return True
+            else:
+                if self.verbose:
+                    logger.info(f"    Date difference: {days_diff} days - preventing completion (Todoist task is too far in future)")
+                logger.warning(f"Skipping completion of Todoist task '{todoist_task.content}' - it's due {days_diff} days after the completed Google Task")
+                return False
+
+        except Exception as e:
+            # If there's any error checking dates, err on the side of caution and allow completion
+            logger.warning(f"Error checking dates for task completion: {e}")
+            if self.verbose:
+                import traceback
+                logger.warning(f"Full traceback: {traceback.format_exc()}")
+            return True
+
     def load_config(self):
         """Load configuration from file or create default."""
         default_config = {
@@ -780,18 +881,31 @@ class TaskSyncManager:
                 
                 if gtasks_id in self.mappings['gtasks_to_todoist']:
                     todoist_id = self.mappings['gtasks_to_todoist'][gtasks_id]
-                    
+
                     if self.verbose:
                         logger.info(f"  Found mapping to Todoist task ID: {todoist_id}")
-                        logger.info(f"  Completing Todoist task...")
-                    
-                    # Complete the Todoist task
-                    self.complete_todoist_task(todoist_id)
-                    
-                    # Mark for cleanup (don't modify mappings during iteration)
-                    tasks_to_clean.append((gtasks_id, todoist_id, gtask))
-                    
-                    completed_count += 1
+
+                    # Check if we should complete this task by comparing dates
+                    should_complete = self._should_complete_todoist_task(gtask, todoist_id)
+
+                    if should_complete:
+                        if self.verbose:
+                            logger.info(f"  Date check passed - completing Todoist task...")
+
+                        # Complete the Todoist task
+                        self.complete_todoist_task(todoist_id)
+
+                        completed_count += 1
+
+                        # Mark for cleanup (don't modify mappings during iteration)
+                        tasks_to_clean.append((gtasks_id, todoist_id, gtask))
+                    else:
+                        if self.verbose:
+                            logger.info(f"  Date check failed - skipping completion but cleaning up Google Task")
+
+                        # Still clean up the completed Google Task even if we don't complete the Todoist task
+                        # Remove the mapping since the Google Task is completed and no longer relevant
+                        tasks_to_clean.append((gtasks_id, None, gtask))  # None indicates no Todoist completion
                 else:
                     if self.verbose:
                         logger.info(f"  No mapping found for this completed Google Task - marking as orphaned")
@@ -803,17 +917,21 @@ class TaskSyncManager:
         # Clean up completed tasks with mappings
         for gtasks_id, todoist_id, gtask in tasks_to_clean:
             try:
-                # Remove from mappings since both tasks are now complete
+                # Remove from mappings since the Google Task is completed
                 if gtasks_id in self.mappings['gtasks_to_todoist']:
                     del self.mappings['gtasks_to_todoist'][gtasks_id]
-                if todoist_id in self.mappings['todoist_to_gtasks']:
+                # Only remove Todoist mapping if we actually completed the Todoist task
+                if todoist_id and todoist_id in self.mappings['todoist_to_gtasks']:
                     del self.mappings['todoist_to_gtasks'][todoist_id]
                 
                 # Delete the completed Google Task to keep things clean
                 self.gtasks.tasks().delete(tasklist=list_id, task=gtasks_id).execute()
                 if self.verbose:
-                    logger.info(f"  Cleaned up completed Google Task: {gtask.get('title', 'Untitled')}")
-                logger.info(f"Cleaned up completed Google Task: {gtask.get('title', 'Untitled')}")
+                    status = "and completed Todoist task" if todoist_id else "but skipped Todoist completion due to date mismatch"
+                    logger.info(f"  Cleaned up completed Google Task {status}: {gtask.get('title', 'Untitled')}")
+
+                status_msg = "and corresponding Todoist task" if todoist_id else "(Todoist completion skipped due to date mismatch)"
+                logger.info(f"Cleaned up completed Google Task {status_msg}: {gtask.get('title', 'Untitled')}")
             except Exception as e:
                 logger.warning(f"Could not delete completed Google Task {gtask.get('title', 'Untitled')}: {e}")
         
