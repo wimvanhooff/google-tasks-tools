@@ -308,14 +308,35 @@ class ProjectSyncManager:
         if self.verbose:
             logger.info(f"Parsing recurrence for task '{task.content}': '{due_string}'")
 
-        # Common patterns
+        # Remove "every!" (non-strict recurring) and treat as "every"
+        due_string = due_string.replace('every!', 'every')
+
+        # Common daily patterns
         if 'every day' in due_string or 'daily' in due_string:
             return 1
-        elif 'every week' in due_string or 'weekly' in due_string:
+
+        # Weekly patterns (including day names)
+        if 'every week' in due_string or 'weekly' in due_string:
             return 7
-        elif 'every month' in due_string or 'monthly' in due_string:
+
+        # Day of week patterns (every monday, every tuesday, etc.)
+        weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        for day in weekdays:
+            if f'every {day}' in due_string or f'every! {day}' in due_string:
+                return 7
+
+        # Monthly patterns
+        if 'every month' in due_string or 'monthly' in due_string:
             return 30
-        elif 'every year' in due_string or 'yearly' in due_string or 'annually' in due_string:
+
+        # Day of month patterns (every 1st, every 15th, etc.)
+        match = re.search(r'every\s+(\d+)(?:st|nd|rd|th)', due_string)
+        if match:
+            # It's monthly on a specific day
+            return 30
+
+        # Yearly patterns
+        if 'every year' in due_string or 'yearly' in due_string or 'annually' in due_string:
             return 365
 
         # Pattern: "every X days"
@@ -333,10 +354,15 @@ class ProjectSyncManager:
         if match:
             return int(match.group(1)) * 30
 
-        # Default: if recurring but we can't parse, use 1 day
+        # Pattern: "every X years"
+        match = re.search(r'every\s+(\d+)\s+years?', due_string)
+        if match:
+            return int(match.group(1)) * 365
+
+        # Default: if recurring but we can't parse, use 7 days (conservative weekly default)
         if self.verbose:
-            logger.warning(f"Could not parse recurrence pattern '{due_string}', defaulting to 1 day")
-        return 1
+            logger.warning(f"Could not parse recurrence pattern '{due_string}', defaulting to 7 days")
+        return 7
 
     def sync_task_to_gtasks(self, todoist_task, list_id: str) -> bool:
         """

@@ -37,11 +37,15 @@ When a Todoist task has native recurrence configured:
 **Supported Recurrence Patterns:**
 - `daily` / `every day` → `!every 1 days`
 - `weekly` / `every week` → `!every 7 days`
+- `every monday` / `every sunday` / etc. → `!every 7 days`
 - `monthly` / `every month` → `!every 30 days`
+- `every 1st` / `every 15th` / etc. → `!every 30 days`
 - `yearly` / `annually` → `!every 365 days`
 - `every X days` → `!every X days`
 - `every X weeks` → `!every (X*7) days`
 - `every X months` → `!every (X*30) days`
+- `every X years` → `!every (X*365) days`
+- `every!` (non-strict) → Same as `every` patterns
 
 #### Key Components
 
