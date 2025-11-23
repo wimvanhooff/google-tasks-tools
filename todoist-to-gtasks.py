@@ -175,7 +175,13 @@ class ProjectSyncManager:
     def get_todoist_projects(self) -> List:
         """Get all Todoist projects including inbox."""
         try:
-            projects = self.todoist.get_projects()
+            # get_projects() returns a paginator that yields lists of projects
+            projects_paginator = self.todoist.get_projects()
+
+            # Collect all projects from paginator
+            projects = []
+            for page in projects_paginator:
+                projects.extend(page)
 
             # Add special "Inbox" project (represented by project_id=None in tasks)
             inbox_project = type('obj', (object,), {
@@ -184,7 +190,7 @@ class ProjectSyncManager:
                 'is_inbox': True
             })()
 
-            all_projects = [inbox_project] + list(projects)
+            all_projects = [inbox_project] + projects
 
             if self.verbose:
                 logger.info(f"Found {len(all_projects)} Todoist projects (including inbox)")
