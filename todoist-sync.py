@@ -1001,7 +1001,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Sync tasks between Todoist and Google Tasks")
-    parser.add_argument('--once', action='store_true', help='Run sync once and exit')
+    parser.add_argument('--daemon', action='store_true', help='Run continuous sync mode (default: run once and exit)')
     parser.add_argument('--config', default='sync_config.json', help='Config file path')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
     
@@ -1033,10 +1033,10 @@ def main():
         logger.info(f"Config: {sync_manager.config['sync_settings']}")
     
     # Run synchronization
-    if args.once:
-        sync_manager.full_sync()
-    else:
+    if args.daemon:
         sync_manager.run_continuous_sync()
+    else:
+        sync_manager.full_sync()
     
     return 0
 

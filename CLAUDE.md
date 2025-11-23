@@ -93,21 +93,56 @@ Main orchestrator that handles:
 - Comprehensive error tracking with stack traces in verbose mode
 
 ### Operational Modes
-- **One-time sync**: `--once` flag for single execution
-- **Continuous sync**: Runs at configured intervals (default 15 minutes)
+- **One-time sync** (default): Runs a single sync cycle and exits - ideal for cron jobs
+- **Daemon mode**: `--daemon` flag enables continuous sync at configured intervals (default 15 minutes)
 - **Verbose mode**: `--verbose` for detailed logging
 
 ## Usage Commands
 ```bash
-# One-time sync
-python todoist-sync.py --once
-
-# Continuous sync (default)
+# One-time sync (default - ideal for cron/scheduled jobs)
 python todoist-sync.py
+
+# Daemon mode (continuous sync)
+python todoist-sync.py --daemon
 
 # Verbose logging
 python todoist-sync.py --verbose
 
 # Custom config file
 python todoist-sync.py --config my_config.json
+
+# Combining options (daemon mode with verbose logging)
+python todoist-sync.py --daemon --verbose
 ```
+
+### Backward Compatibility Note
+**Breaking change**: The default behavior has changed. Previously, running `python todoist-sync.py` without flags would run continuous sync, and `--once` was required for a single execution. Now the default is to run once and exit (suitable for cron), and `--daemon` is required for continuous mode. If you have existing automation that relies on the old behavior, add the `--daemon` flag to maintain continuous operation.
+
+<!-- BACKLOG.MD MCP GUIDELINES START -->
+
+<CRITICAL_INSTRUCTION>
+
+## BACKLOG WORKFLOW INSTRUCTIONS
+
+This project uses Backlog.md MCP for all task and project management activities.
+
+**CRITICAL GUIDANCE**
+
+- If your client supports MCP resources, read `backlog://workflow/overview` to understand when and how to use Backlog for this project.
+- If your client only supports tools or the above request fails, call `backlog.get_workflow_overview()` tool to load the tool-oriented overview (it lists the matching guide tools).
+
+- **First time working here?** Read the overview resource IMMEDIATELY to learn the workflow
+- **Already familiar?** You should have the overview cached ("## Backlog.md Overview (MCP)")
+- **When to read it**: BEFORE creating tasks, or when you're unsure whether to track work
+
+These guides cover:
+- Decision framework for when to create tasks
+- Search-first workflow to avoid duplicates
+- Links to detailed guides for task creation, execution, and completion
+- MCP tools reference
+
+You MUST read the overview resource to understand the complete workflow. The information is NOT summarized here.
+
+</CRITICAL_INSTRUCTION>
+
+<!-- BACKLOG.MD MCP GUIDELINES END -->
