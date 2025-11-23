@@ -71,9 +71,9 @@ logger.propagate = False
 class TaskSyncManager:
     """Manages synchronization between Todoist and Google Tasks."""
     
-    def __init__(self, config_file: str = "sync_config.json", verbose: bool = False):
+    def __init__(self, config_file: str = "todoist-sync.conf", verbose: bool = False):
         self.config_file = config_file
-        self.mapping_file = "task_mappings.json"
+        self.mapping_file = "todoist-sync-mappings.json"
         self.verbose = verbose
         self.load_config()
         self.load_mappings()
@@ -1002,7 +1002,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="Sync tasks between Todoist and Google Tasks")
     parser.add_argument('--daemon', action='store_true', help='Run continuous sync mode (default: run once and exit)')
-    parser.add_argument('--config', default='sync_config.json', help='Config file path')
+    parser.add_argument('--config', default='todoist-sync.conf', help='Config file path (default: todoist-sync.conf)')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
     
     args = parser.parse_args()
@@ -1024,7 +1024,7 @@ def main():
     
     # Check if configuration is complete
     if not sync_manager.config.get('todoist_token'):
-        logger.error("Todoist token not configured. Please update sync_config.json")
+        logger.error(f"Todoist token not configured. Please update {args.config}")
         return 1
     
     if args.verbose:

@@ -1,6 +1,20 @@
 credentials.json
 out
-task_mappings.json
-sync_config.json
 token.json
 todoist-sync-env/
+
+# Old config files (deprecated)
+task_mappings.json
+sync_config.json
+
+# Todoist-Google Tasks bidirectional sync files (keep .template tracked)
+todoist-sync.conf
+todoist-sync-mappings.json
+
+# Todoist to Google Tasks one-way sync files (keep .template tracked)
+todoist-to-gtasks.conf
+todoist-to-gtasks-mappings.json
+
+# Google Tasks recurring tasks files (keep .template tracked)
+gtasks-recurring.conf
+recurring_config.json

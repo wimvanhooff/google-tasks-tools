@@ -4,9 +4,242 @@
 This repository contains a collection of tools for working with Google Tasks:
 
 1. **Todoist-Google Tasks Sync Tool** (`todoist-sync.py`) - Bidirectional synchronization between Todoist and Google Tasks
-2. **Recurring Tasks Tool** (`gtasks-recurring.py`) - Implements repeat-after-completion functionality for Google Tasks
+2. **Todoist to Google Tasks Project Sync** (`todoist-to-gtasks.py`) - One-way sync from Todoist projects to Google Tasks lists
+3. **Recurring Tasks Tool** (`gtasks-recurring.py`) - Implements repeat-after-completion functionality for Google Tasks
 
 Additional Google Tasks utilities may be added in future development.
+
+---
+
+## Todoist to Google Tasks Project Sync
+
+### Overview
+This tool provides one-way synchronization from Todoist projects to Google Tasks lists. Unlike the bidirectional sync tool which focuses on filtered tasks in a single list, this tool syncs ALL tasks from Todoist projects to corresponding Google Tasks lists, maintaining a complete mirror of your Todoist structure in Google Tasks.
+
+### Core Functionality
+
+#### Sync Behavior
+- **Direction**: One-way only (Todoist → Google Tasks)
+- **Scope**: ALL tasks from ALL Todoist projects (no filtering by priority, labels, or due dates)
+- **Project Mapping**: Each Todoist project becomes a separate Google Tasks list
+- **Inbox Support**: Todoist inbox tasks are synced to a dedicated list (configurable name, default: "Todoist Inbox")
+- **List Creation**: Automatically creates Google Tasks lists if they don't exist
+- **Update Strategy**: Always updates existing Google Tasks with latest Todoist data
+- **Completions**: Does NOT sync completion status (manual completion in Google Tasks only)
+- **Cleanup**: Does NOT delete Google Tasks when removed from Todoist
+
+#### Recurring Tasks Integration
+When a Todoist task has native recurrence configured:
+- Detects the recurrence pattern (daily, weekly, every X days, etc.)
+- Converts to gtasks-recurring.py format by prepending `!every X days` to the task description
+- This allows gtasks-recurring.py to handle the recurrence after completion in Google Tasks
+
+**Supported Recurrence Patterns:**
+- `daily` / `every day` → `!every 1 days`
+- `weekly` / `every week` → `!every 7 days`
+- `monthly` / `every month` → `!every 30 days`
+- `yearly` / `annually` → `!every 365 days`
+- `every X days` → `!every X days`
+- `every X weeks` → `!every (X*7) days`
+- `every X months` → `!every (X*30) days`
+
+#### Key Components
+
+##### ProjectSyncManager Class
+Main orchestrator that handles:
+- Configuration management (`todoist-to-gtasks.conf`)
+- Project/list and task ID mappings (`todoist-to-gtasks-mappings.json`)
+- API initialization for both platforms
+- Project-based sync coordination
+
+##### Core Methods
+
+**`get_todoist_projects()`** - Project retrieval
+- Gets all Todoist projects
+- Adds special "inbox" project for tasks without a project
+- Returns list of all projects to sync
+
+**`get_todoist_tasks_by_project(project_id)`** - Task retrieval
+- Gets all tasks for a specific project
+- Handles inbox (project_id='inbox') as special case
+- No filtering - returns ALL tasks
+
+**`find_or_create_gtasks_list(project_name, project_id)`** - List management
+- Searches for existing Google Tasks list by name
+- Creates new list if not found
+- Maintains project_id → list_id mapping
+- Verifies mapped lists still exist
+
+**`parse_todoist_recurrence(task)`** - Recurrence detection
+- Checks if task has `due.is_recurring = True`
+- Parses `due.string` to extract human-readable pattern
+- Converts to number of days
+- Returns None if not recurring
+
+**`sync_task_to_gtasks(todoist_task, list_id)`** - Task sync
+- Creates new Google Task or updates existing
+- Prepends recurrence directive if task is recurring
+- Syncs title, notes/description, and due date
+- Maintains task ID mappings
+
+**`sync_all_projects()`** - Main sync loop
+- Iterates through all projects
+- Finds or creates corresponding Google Tasks lists
+- Syncs all tasks in each project
+- Saves mappings after completion
+
+#### Configuration Files
+
+**`todoist-to-gtasks.conf`** - Main configuration (auto-created on first run)
+
+A template file (`todoist-to-gtasks.conf.template`) is provided with helpful comments.
+
+```json
+{
+  "todoist_token": "your_api_token",
+  "google_credentials_file": "credentials.json",
+  "google_token_file": "token.json",
+  "sync_settings": {
+    "excluded_projects": [],
+    "sync_interval_minutes": 15,
+    "inbox_list_name": "Todoist Inbox"
+  }
+}
+```
+
+**Configuration Options**:
+- `todoist_token`: Your Todoist API token
+- `google_credentials_file`: OAuth2 client credentials from Google Cloud Console
+- `google_token_file`: Cached access/refresh tokens (auto-generated)
+- `excluded_projects`: List of project names to skip (e.g., ["Archive", "Someday"])
+- `sync_interval_minutes`: How often to sync in daemon mode (default: 15)
+- `inbox_list_name`: Name for the Google Tasks list that receives inbox tasks
+
+**`todoist-to-gtasks-mappings.json`** - ID relationship tracking
+```json
+{
+  "project_to_list": {"todoist_project_id": "gtasks_list_id"},
+  "todoist_to_gtasks": {"todoist_task_id": "gtasks_task_id"},
+  "gtasks_to_todoist": {"gtasks_task_id": "todoist_task_id"},
+  "last_sync": "2024-01-01T12:00:00Z"
+}
+```
+
+#### Date Handling
+- Syncs due dates from Todoist to Google Tasks
+- Supports both `due.date` (date only) and `due.datetime` (with time)
+- Converts to RFC 3339 format for Google Tasks API
+- Date-only tasks set to midnight (00:00:00)
+
+#### Error Handling & Logging
+- Dual logging: INFO/WARNING to stdout, ERROR/CRITICAL to stderr
+- Verbose mode provides detailed project and task processing logs
+- Graceful handling of API failures
+- Continues processing remaining projects/tasks on individual failures
+- Comprehensive error tracking with stack traces in verbose mode
+
+#### Operational Modes
+- **One-time sync** (default): Runs a single sync cycle and exits - ideal for cron jobs
+- **Daemon mode**: `--daemon` flag enables continuous sync at configured intervals
+- **Verbose mode**: `--verbose` for detailed logging
+- **Dry-run mode**: `--dry-run` shows what would be done without making any changes
+- **Limit mode**: `--limit N` syncs only N tasks (useful for testing)
+- **Custom config**: `--config` to specify alternate configuration file
+
+### Usage Commands
+
+```bash
+# One-time sync (default - ideal for cron/scheduled jobs)
+python todoist-to-gtasks.py
+
+# Dry-run mode (see what would be done without making changes)
+python todoist-to-gtasks.py --dry-run
+
+# Limit mode (sync only first 5 tasks for testing)
+python todoist-to-gtasks.py --limit 5
+
+# Combining dry-run with limit and verbose (perfect for testing)
+python todoist-to-gtasks.py --dry-run --limit 10 --verbose
+
+# Daemon mode (continuous sync every 15 minutes)
+python todoist-to-gtasks.py --daemon
+
+# Verbose logging
+python todoist-to-gtasks.py --verbose
+
+# Custom config file
+python todoist-to-gtasks.py --config my_config.json
+
+# Combining options (daemon mode with verbose logging)
+python todoist-to-gtasks.py --daemon --verbose
+```
+
+### Setup Instructions
+
+1. **Get Todoist API Token**:
+   - Go to [Todoist Integrations](https://todoist.com/prefs/integrations)
+   - Copy your API token
+
+2. **Google Cloud Console Setup**:
+   - Create a project in [Google Cloud Console](https://console.cloud.google.com/)
+   - Enable the Google Tasks API
+   - Create OAuth 2.0 credentials (Desktop application)
+   - Download credentials as `credentials.json`
+
+3. **Configure**:
+   ```bash
+   # Option A: Let the script create default config
+   python todoist-to-gtasks.py
+
+   # Option B: Use the provided template
+   cp todoist-to-gtasks.conf.template todoist-to-gtasks.conf
+   ```
+   - Edit `todoist-to-gtasks.conf` and add your Todoist token
+   - The template includes helpful comments explaining each option
+   - Run the script again - will open browser for Google OAuth consent (first time only)
+   - Will save token to `token.json` for future use
+
+4. **Test with Dry-Run** (recommended):
+   ```bash
+   python todoist-to-gtasks.py --dry-run --limit 5 --verbose
+   ```
+   - Safely preview what would be synced without making any changes
+   - Limit to 5 tasks for quick testing
+   - Verbose mode shows detailed processing information
+
+5. **Configure** (optional):
+   - Edit `todoist-to-gtasks.conf` to exclude projects or customize settings
+   - Set `inbox_list_name` to your preferred name for inbox tasks
+
+### Use Cases
+
+**When to use this tool vs todoist-sync.py:**
+- **Use todoist-to-gtasks.py** when you want a complete mirror of your Todoist structure in Google Tasks
+- **Use todoist-sync.py** when you want filtered, bidirectional sync with a single list
+
+**Common Workflows:**
+1. **Full Mirror**: Sync all Todoist projects to Google Tasks for backup or cross-platform access
+2. **Recurring Tasks**: Use Todoist's flexible recurring syntax, then let gtasks-recurring.py handle completion-based recurrence
+3. **Project Organization**: Maintain separate Google Tasks lists per project for better organization
+4. **One-way Flow**: Make Todoist your source of truth, use Google Tasks as read-only reference
+
+### Integration with gtasks-recurring.py
+
+This tool works seamlessly with gtasks-recurring.py:
+1. Create recurring tasks in Todoist with native recurrence (e.g., "every 3 days")
+2. Run `python todoist-to-gtasks.py` to sync to Google Tasks with `!every 3 days` directive
+3. Complete the task in Google Tasks when done
+4. Run `python gtasks-recurring.py` to create the next occurrence based on completion time
+5. The new task persists in Google Tasks (not synced back to Todoist)
+
+### Automation with Cron
+
+Run automatically every 15 minutes:
+```bash
+*/15 * * * * cd /path/to/google-tasks-tools && python todoist-to-gtasks.py >> project_sync.log 2>&1
+```
+
+Or use daemon mode with systemd/supervisor for continuous operation.
 
 ---
 
@@ -35,8 +268,8 @@ Tasks are synced from Todoist to Google Tasks if they meet ALL of the following 
 
 ##### TaskSyncManager Class
 Main orchestrator that handles:
-- Configuration management (`sync_config.json`)
-- Task ID mappings (`task_mappings.json`)
+- Configuration management (`todoist-sync.conf`)
+- Task ID mappings (`todoist-sync-mappings.json`)
 - API initialization for both platforms
 - Sync logic coordination
 
@@ -67,7 +300,10 @@ Main orchestrator that handles:
 
 #### Configuration Files
 
-**`sync_config.json`** - Main configuration
+**`todoist-sync.conf`** - Main configuration
+
+A template file (`todoist-sync.conf.template`) is provided with helpful comments.
+
 ```json
 {
   "todoist_token": "your_api_token",
@@ -82,7 +318,7 @@ Main orchestrator that handles:
 }
 ```
 
-**`task_mappings.json`** - ID relationship tracking
+**`todoist-sync-mappings.json`** - ID relationship tracking
 ```json
 {
   "todoist_to_gtasks": {"12345": "gtask_abc123"},
@@ -172,7 +408,7 @@ The directive is case-insensitive and can appear anywhere in the task notes. The
 ##### RecurringTaskManager Class
 Main orchestrator that handles:
 - Google Tasks API authentication (OAuth2 with token caching)
-- Configuration management (`recurring_config.json`)
+- Configuration management (`gtasks-recurring.conf`)
 - Completed task scanning across lists
 - Directive parsing and date calculation
 - New task creation and cleanup
@@ -207,7 +443,10 @@ Main orchestrator that handles:
 
 #### Configuration File
 
-**`recurring_config.json`** - Main configuration (auto-created on first run)
+**`gtasks-recurring.conf`** - Main configuration (auto-created on first run)
+
+A template file (`gtasks-recurring.conf.template`) is provided with helpful comments.
+
 ```json
 {
   "google_credentials_file": "credentials.json",
@@ -285,13 +524,18 @@ python gtasks-recurring.py --daemon --verbose
    ```bash
    python gtasks-recurring.py
    ```
-   - Will create default `recurring_config.json` if missing
+   - Will create default `gtasks-recurring.conf` if missing
    - Will open browser for OAuth consent (first time only)
    - Will save token to `token.json` for future use
 
 3. **Configure** (optional):
-   - Edit `recurring_config.json` to set target lists or check interval
+   ```bash
+   # Option: Use the provided template
+   cp gtasks-recurring.conf.template gtasks-recurring.conf
+   ```
+   - Edit `gtasks-recurring.conf` to set target lists or check interval
    - Leave `target_lists` empty to process all lists
+   - Template includes helpful comments explaining each option
 
 4. **Add Recurring Tasks**:
    - Create tasks in Google Tasks with due dates

@@ -67,7 +67,7 @@ class RecurringTaskManager:
     SCOPES = ['https://www.googleapis.com/auth/tasks']
     DIRECTIVE_PATTERN = re.compile(r'!every\s+(\d+)\s+days?', re.IGNORECASE)
 
-    def __init__(self, config_file='recurring_config.json', dry_run=False):
+    def __init__(self, config_file='gtasks-recurring.conf', dry_run=False):
         """Initialize the recurring task manager.
 
         Args:
@@ -391,8 +391,8 @@ def main():
     )
     parser.add_argument(
         '--config',
-        default='recurring_config.json',
-        help='Path to configuration file (default: recurring_config.json)'
+        default='gtasks-recurring.conf',
+        help='Path to configuration file (default: gtasks-recurring.conf)'
     )
     parser.add_argument(
         '--interval',
