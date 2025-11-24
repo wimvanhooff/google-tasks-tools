@@ -372,17 +372,24 @@ class ProjectSyncManager:
         try:
             task_id_str = str(todoist_task.id)
 
-            # Prepare task notes
-            notes = f"Synced from Todoist\nOriginal ID: {todoist_task.id}"
-            if hasattr(todoist_task, 'description') and todoist_task.description:
-                notes += f"\n\n{todoist_task.description}"
+            # Prepare task notes - start with recurrence if present
+            notes = ""
 
-            # Check for recurrence and prepend directive
-            recurrence_days = self.parse_todoist_recurrence(todoist_task)
-            if recurrence_days:
-                notes = f"!every {recurrence_days} days\n\n{notes}"
-                if self.verbose:
-                    logger.info(f"Added recurrence directive: !every {recurrence_days} days")
+            # Check for recurrence and prepend raw due.string
+            if hasattr(todoist_task, 'due') and todoist_task.due:
+                if hasattr(todoist_task.due, 'is_recurring') and todoist_task.due.is_recurring:
+                    due_string = getattr(todoist_task.due, 'string', '')
+                    if due_string:
+                        notes = due_string
+                        if self.verbose:
+                            logger.info(f"Added recurrence string: {due_string}")
+
+            # Add task description if present
+            if hasattr(todoist_task, 'description') and todoist_task.description:
+                if notes:
+                    notes += f"\n\n{todoist_task.description}"
+                else:
+                    notes = todoist_task.description
 
             # Handle due date
             due_date_for_gtask = None

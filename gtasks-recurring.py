@@ -65,7 +65,7 @@ class RecurringTaskManager:
     """Manages recurring tasks in Google Tasks based on completion directives."""
 
     SCOPES = ['https://www.googleapis.com/auth/tasks']
-    DIRECTIVE_PATTERN = re.compile(r'!every\s+(\d+)\s+days?', re.IGNORECASE)
+    DIRECTIVE_PATTERN = re.compile(r'every!\s+(\d+)\s+days?', re.IGNORECASE)
 
     def __init__(self, config_file='gtasks-recurring.conf', dry_run=False):
         """Initialize the recurring task manager.

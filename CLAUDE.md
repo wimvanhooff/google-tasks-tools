@@ -29,23 +29,23 @@ This tool provides one-way synchronization from Todoist projects to Google Tasks
 - **Cleanup**: Does NOT delete Google Tasks when removed from Todoist
 
 #### Recurring Tasks Integration
-When a Todoist task has native recurrence configured:
-- Detects the recurrence pattern (daily, weekly, every X days, etc.)
-- Converts to gtasks-recurring.py format by prepending `!every X days` to the task description
-- This allows gtasks-recurring.py to handle the recurrence after completion in Google Tasks
+The tool handles Todoist recurring tasks by prepending the raw recurrence string to the task description:
 
-**Supported Recurrence Patterns:**
-- `daily` / `every day` → `!every 1 days`
-- `weekly` / `every week` → `!every 7 days`
-- `every monday` / `every sunday` / etc. → `!every 7 days`
-- `monthly` / `every month` → `!every 30 days`
-- `every 1st` / `every 15th` / etc. → `!every 30 days`
-- `yearly` / `annually` → `!every 365 days`
-- `every X days` → `!every X days`
-- `every X weeks` → `!every (X*7) days`
-- `every X months` → `!every (X*30) days`
-- `every X years` → `!every (X*365) days`
-- `every!` (non-strict) → Same as `every` patterns
+**For all recurring tasks:**
+- The Todoist `due.string` (e.g., "every sunday", "every! 3 days", "every 1st") is prepended to the notes
+- Format: `"{recurrence string}\n\n{original description}"`
+
+**Two types of recurrence:**
+1. **`every!` (non-strict)** - Completion-based recurrence
+   - Example: `"every! 3 days"` → Handled by gtasks-recurring.py
+   - The task recurs X days after completion
+   - Automatically managed by gtasks-recurring.py
+
+2. **`every` (strict)** - Calendar-based recurrence
+   - Examples: `"every sunday"`, `"every 1st"`, `"every month"`
+   - Must be manually configured in Google Tasks web interface
+   - Google Tasks API doesn't support native recurrence, so these sync as one-time tasks
+   - User needs to set up the recurrence pattern manually in the UI
 
 #### Key Components
 
@@ -229,12 +229,22 @@ python todoist-to-gtasks.py --daemon --verbose
 
 ### Integration with gtasks-recurring.py
 
-This tool works seamlessly with gtasks-recurring.py:
-1. Create recurring tasks in Todoist with native recurrence (e.g., "every 3 days")
-2. Run `python todoist-to-gtasks.py` to sync to Google Tasks with `!every 3 days` directive
-3. Complete the task in Google Tasks when done
-4. Run `python gtasks-recurring.py` to create the next occurrence based on completion time
-5. The new task persists in Google Tasks (not synced back to Todoist)
+This tool works with gtasks-recurring.py for completion-based recurring tasks:
+
+1. **Create tasks in Todoist** with `every!` recurrence (e.g., "every! 3 days")
+2. **Run todoist-to-gtasks.py** to sync to Google Tasks
+   - The recurrence string is prepended to the notes
+   - Example: Notes will contain `"every! 3 days\n\n[description]"`
+3. **Complete the task** in Google Tasks when done
+4. **Run gtasks-recurring.py** to create the next occurrence
+   - Automatically detects `every! X days` pattern
+   - Creates new task X days after completion
+5. **Next sync** from Todoist updates the task if needed
+
+**For strict recurring tasks** (calendar-based like "every sunday", "every 1st"):
+- These sync with the recurrence string in notes
+- Set up native recurrence manually in Google Tasks web interface
+- gtasks-recurring.py ignores these (they use Google's native recurrence)
 
 ### Automation with Cron
 
@@ -390,15 +400,17 @@ This tool implements repeat-after-completion functionality for Google Tasks, a f
 Add the following to any task's description/notes to make it recurring:
 
 ```
-!every X days
+every! X days
 ```
 
 Examples:
-- `!every 3 days` - Recreates task 3 days after completion
-- `!every 1 day` - Daily recurring task (after completion)
-- `!every 7 days` - Weekly recurring task (after completion)
+- `every! 3 days` - Recreates task 3 days after completion
+- `every! 1 day` - Daily recurring task (after completion)
+- `every! 7 days` - Weekly recurring task (after completion)
 
 The directive is case-insensitive and can appear anywhere in the task notes. The new task will retain the directive, so it will continue recurring indefinitely.
+
+**Note:** This uses Todoist's `every!` syntax (non-strict recurring). When syncing from Todoist using `todoist-to-gtasks.py`, tasks with `every! X days` patterns are automatically compatible with gtasks-recurring.py.
 
 #### Key Features
 - **Completion-based timing**: Unlike calendar-based recurring tasks, these tasks recur based on when you actually complete them
@@ -420,7 +432,7 @@ Main orchestrator that handles:
 ##### Core Methods
 
 **`parse_directive(task)`** - Directive detection
-- Searches task notes for `!every X days` pattern (regex)
+- Searches task notes for `every! X days` pattern (regex)
 - Extracts the number of days
 - Returns None if no directive found
 
@@ -543,7 +555,7 @@ python gtasks-recurring.py --daemon --verbose
 
 4. **Add Recurring Tasks**:
    - Create tasks in Google Tasks with due dates
-   - Add `!every X days` to the task description/notes
+   - Add `every! X days` to the task description/notes
    - Complete the task when done
    - Run the script to automatically create the next occurrence
 
@@ -551,7 +563,7 @@ python gtasks-recurring.py --daemon --verbose
 
 1. Create a task: "Take vitamins"
 2. Set a due date: Today
-3. Add to notes: `!every 1 day`
+3. Add to notes: `every! 1 day`
 4. Complete the task when done
 5. Run `python gtasks-recurring.py`
 6. Script creates new "Take vitamins" task due tomorrow
