@@ -77,13 +77,11 @@ class ProjectSyncManager:
 
     def __init__(self, config_file: str = "todoist-to-gtasks.conf", verbose: bool = False, dry_run: bool = False, limit: Optional[int] = None, single_project: Optional[str] = None):
         self.config_file = config_file
-        self.mapping_file = "todoist-to-gtasks-mappings.json"
         self.verbose = verbose
         self.dry_run = dry_run
         self.limit = limit
         self.single_project = single_project
         self.load_config()
-        self.load_mappings()
 
         # Initialize APIs
         self.todoist = TodoistAPI(self.config['todoist_token'])
@@ -122,25 +120,6 @@ class ProjectSyncManager:
         """Save configuration to file."""
         with open(self.config_file, 'w') as f:
             json.dump(self.config, f, indent=2)
-
-    def load_mappings(self):
-        """Load task and project/list ID mappings."""
-        if os.path.exists(self.mapping_file):
-            with open(self.mapping_file, 'r') as f:
-                self.mappings = json.load(f)
-        else:
-            self.mappings = {
-                "project_to_list": {},      # todoist_project_id -> gtasks_list_id
-                "todoist_to_gtasks": {},    # todoist_task_id -> gtasks_task_id
-                "gtasks_to_todoist": {},    # gtasks_task_id -> todoist_task_id
-                "last_sync": None
-            }
-
-    def save_mappings(self):
-        """Save mappings to file."""
-        self.mappings["last_sync"] = datetime.now(timezone.utc).isoformat()
-        with open(self.mapping_file, 'w') as f:
-            json.dump(self.mappings, f, indent=2)
 
     def _init_google_tasks(self):
         """Initialize Google Tasks API client."""
@@ -243,25 +222,9 @@ class ProjectSyncManager:
                 logger.error(f"Full traceback: {traceback.format_exc()}")
             return []
 
-    def find_or_create_gtasks_list(self, project_name: str, project_id: str) -> Optional[str]:
+    def find_or_create_gtasks_list(self, project_name: str) -> Optional[str]:
         """Find existing Google Tasks list or create new one matching Todoist project."""
         try:
-            # Check if we already have a mapping
-            if project_id in self.mappings['project_to_list']:
-                list_id = self.mappings['project_to_list'][project_id]
-
-                # Verify the list still exists
-                try:
-                    self.gtasks.tasklists().get(tasklist=list_id).execute()
-                    if self.verbose:
-                        logger.info(f"Using existing mapped list for project '{project_name}': {list_id}")
-                    return list_id
-                except:
-                    # List no longer exists, remove mapping
-                    if self.verbose:
-                        logger.info(f"Mapped list {list_id} no longer exists, will create new")
-                    del self.mappings['project_to_list'][project_id]
-
             # Search for existing list by name
             results = self.gtasks.tasklists().list().execute()
             lists = results.get('items', [])
@@ -269,7 +232,6 @@ class ProjectSyncManager:
             for task_list in lists:
                 if task_list['title'] == project_name:
                     list_id = task_list['id']
-                    self.mappings['project_to_list'][project_id] = list_id
                     if self.verbose:
                         logger.info(f"Found existing list '{project_name}': {list_id}")
                     return list_id
@@ -278,11 +240,10 @@ class ProjectSyncManager:
             if self.dry_run:
                 logger.info(f"[DRY-RUN] Would create new Google Tasks list: '{project_name}'")
                 # Return a fake ID for dry-run
-                return f"dry_run_list_{project_id}"
+                return f"dry_run_list_{project_name}"
 
             new_list = self.gtasks.tasklists().insert(body={'title': project_name}).execute()
             list_id = new_list['id']
-            self.mappings['project_to_list'][project_id] = list_id
             logger.info(f"Created new Google Tasks list: '{project_name}' (ID: {list_id})")
 
             return list_id
@@ -294,87 +255,28 @@ class ProjectSyncManager:
                 logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
 
-    def parse_todoist_recurrence(self, task) -> Optional[int]:
-        """
-        Extract recurrence interval in days from Todoist recurring task.
-        Returns number of days, or None if not recurring.
-        """
-        if not hasattr(task, 'due') or not task.due:
-            return None
+    def get_gtasks_in_list(self, list_id: str) -> Dict[str, Dict]:
+        """Get all tasks in a Google Tasks list, indexed by title."""
+        try:
+            result = self.gtasks.tasks().list(
+                tasklist=list_id,
+                showCompleted=True,
+                showHidden=True
+            ).execute()
 
-        if not hasattr(task.due, 'is_recurring') or not task.due.is_recurring:
-            return None
+            tasks = result.get('items', [])
+            # Index by title for easy lookup
+            return {task['title']: task for task in tasks}
+        except Exception as e:
+            logger.error(f"Error fetching Google Tasks from list {list_id}: {e}")
+            return {}
 
-        # Get the human-readable recurrence string
-        due_string = getattr(task.due, 'string', '').lower()
-
-        if self.verbose:
-            logger.info(f"Parsing recurrence for task '{task.content}': '{due_string}'")
-
-        # Remove "every!" (non-strict recurring) and treat as "every"
-        due_string = due_string.replace('every!', 'every')
-
-        # Common daily patterns
-        if 'every day' in due_string or 'daily' in due_string:
-            return 1
-
-        # Weekly patterns (including day names)
-        if 'every week' in due_string or 'weekly' in due_string:
-            return 7
-
-        # Day of week patterns (every monday, every tuesday, etc.)
-        weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-        for day in weekdays:
-            if f'every {day}' in due_string or f'every! {day}' in due_string:
-                return 7
-
-        # Monthly patterns
-        if 'every month' in due_string or 'monthly' in due_string:
-            return 30
-
-        # Day of month patterns (every 1st, every 15th, etc.)
-        match = re.search(r'every\s+(\d+)(?:st|nd|rd|th)', due_string)
-        if match:
-            # It's monthly on a specific day
-            return 30
-
-        # Yearly patterns
-        if 'every year' in due_string or 'yearly' in due_string or 'annually' in due_string:
-            return 365
-
-        # Pattern: "every X days"
-        match = re.search(r'every\s+(\d+)\s+days?', due_string)
-        if match:
-            return int(match.group(1))
-
-        # Pattern: "every X weeks"
-        match = re.search(r'every\s+(\d+)\s+weeks?', due_string)
-        if match:
-            return int(match.group(1)) * 7
-
-        # Pattern: "every X months"
-        match = re.search(r'every\s+(\d+)\s+months?', due_string)
-        if match:
-            return int(match.group(1)) * 30
-
-        # Pattern: "every X years"
-        match = re.search(r'every\s+(\d+)\s+years?', due_string)
-        if match:
-            return int(match.group(1)) * 365
-
-        # Default: if recurring but we can't parse, use 7 days (conservative weekly default)
-        if self.verbose:
-            logger.warning(f"Could not parse recurrence pattern '{due_string}', defaulting to 7 days")
-        return 7
-
-    def sync_task_to_gtasks(self, todoist_task, list_id: str) -> bool:
+    def sync_task_to_gtasks(self, todoist_task, list_id: str, existing_gtasks: Dict[str, Dict]) -> bool:
         """
         Sync a Todoist task to Google Tasks (create or update).
         Returns True if successful, False otherwise.
         """
         try:
-            task_id_str = str(todoist_task.id)
-
             # Prepare task notes - start with recurrence if present
             notes = ""
 
@@ -413,9 +315,10 @@ class ProjectSyncManager:
             if due_date_for_gtask:
                 task_body['due'] = due_date_for_gtask
 
-            # Check if task already exists
-            if task_id_str in self.mappings['todoist_to_gtasks']:
-                gtasks_id = self.mappings['todoist_to_gtasks'][task_id_str]
+            # Check if task already exists by title
+            if todoist_task.content in existing_gtasks:
+                existing_task = existing_gtasks[todoist_task.content]
+                gtasks_id = existing_task['id']
 
                 # Update existing task
                 if self.dry_run:
@@ -430,7 +333,6 @@ class ProjectSyncManager:
 
                     if self.verbose:
                         logger.info(f"Updated Google Task: '{todoist_task.content}'")
-
             else:
                 # Create new task
                 if self.dry_run:
@@ -440,10 +342,6 @@ class ProjectSyncManager:
                         tasklist=list_id,
                         body=task_body
                     ).execute()
-
-                    gtasks_id = result['id']
-                    self.mappings['todoist_to_gtasks'][task_id_str] = gtasks_id
-                    self.mappings['gtasks_to_todoist'][gtasks_id] = task_id_str
 
                     logger.info(f"Created Google Task: '{todoist_task.content}'")
 
@@ -482,18 +380,21 @@ class ProjectSyncManager:
             logger.info(f"Syncing {len(projects_to_sync)} project(s)")
 
         total_tasks = 0
-        total_created = 0
-        total_updated = 0
         total_limit_reached = False
 
         for project in projects_to_sync:
             logger.info(f"\nProcessing project: '{project.name}'")
 
             # Find or create corresponding Google Tasks list
-            list_id = self.find_or_create_gtasks_list(project.name, str(project.id))
+            list_id = self.find_or_create_gtasks_list(project.name)
             if not list_id:
                 logger.error(f"Could not get list ID for project '{project.name}', skipping")
                 continue
+
+            # Get existing tasks in Google Tasks list
+            existing_gtasks = self.get_gtasks_in_list(list_id)
+            if self.verbose:
+                logger.info(f"Found {len(existing_gtasks)} existing Google Task(s) in list")
 
             # Get all tasks in this project
             tasks = self.get_todoist_tasks_by_project(str(project.id))
@@ -507,27 +408,14 @@ class ProjectSyncManager:
                     total_limit_reached = True
                     break
 
-                task_id_str = str(task.id)
-                was_new = task_id_str not in self.mappings['todoist_to_gtasks']
-
-                if self.sync_task_to_gtasks(task, list_id):
+                if self.sync_task_to_gtasks(task, list_id, existing_gtasks):
                     total_tasks += 1
-                    if was_new:
-                        total_created += 1
-                    else:
-                        total_updated += 1
 
             # Break outer loop if limit reached
             if total_limit_reached:
                 break
 
-        # Save mappings (skip in dry-run mode)
-        if not self.dry_run:
-            self.save_mappings()
-        else:
-            logger.info("[DRY-RUN] Would save mappings")
-
-        status_msg = f"\nSync complete: {total_tasks} tasks processed ({total_created} created, {total_updated} updated)"
+        status_msg = f"\nSync complete: {total_tasks} tasks processed"
         if total_limit_reached:
             status_msg += f" [LIMIT REACHED: {self.limit}]"
         logger.info(status_msg)
