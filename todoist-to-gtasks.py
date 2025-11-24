@@ -75,12 +75,13 @@ logger.propagate = False
 class ProjectSyncManager:
     """Manages one-way synchronization from Todoist projects to Google Tasks lists."""
 
-    def __init__(self, config_file: str = "todoist-to-gtasks.conf", verbose: bool = False, dry_run: bool = False, limit: Optional[int] = None):
+    def __init__(self, config_file: str = "todoist-to-gtasks.conf", verbose: bool = False, dry_run: bool = False, limit: Optional[int] = None, single_project: Optional[str] = None):
         self.config_file = config_file
         self.mapping_file = "todoist-to-gtasks-mappings.json"
         self.verbose = verbose
         self.dry_run = dry_run
         self.limit = limit
+        self.single_project = single_project
         self.load_config()
         self.load_mappings()
 
@@ -92,6 +93,8 @@ class ProjectSyncManager:
             logger.info("DRY-RUN MODE: No changes will be made")
         if self.limit:
             logger.info(f"LIMIT MODE: Maximum {self.limit} tasks will be synced")
+        if self.single_project:
+            logger.info(f"SINGLE PROJECT MODE: Only syncing project '{self.single_project}'")
 
     def load_config(self):
         """Load configuration from file or create default."""
@@ -461,13 +464,22 @@ class ProjectSyncManager:
         projects = self.get_todoist_projects()
         excluded = self.config['sync_settings'].get('excluded_projects', [])
 
-        # Filter excluded projects
-        projects_to_sync = [p for p in projects if p.name not in excluded]
+        # Filter to single project if specified
+        if self.single_project:
+            projects_to_sync = [p for p in projects if p.name == self.single_project]
+            if not projects_to_sync:
+                logger.error(f"Project '{self.single_project}' not found")
+                logger.info(f"Available projects: {[p.name for p in projects]}")
+                return
+            logger.info(f"Syncing single project: '{self.single_project}'")
+        else:
+            # Filter excluded projects
+            projects_to_sync = [p for p in projects if p.name not in excluded]
 
-        if excluded:
-            logger.info(f"Excluding {len(excluded)} project(s): {excluded}")
+            if excluded:
+                logger.info(f"Excluding {len(excluded)} project(s): {excluded}")
 
-        logger.info(f"Syncing {len(projects_to_sync)} project(s)")
+            logger.info(f"Syncing {len(projects_to_sync)} project(s)")
 
         total_tasks = 0
         total_created = 0
@@ -582,6 +594,11 @@ def main():
         type=int,
         help='Limit number of tasks to sync (useful for testing)'
     )
+    parser.add_argument(
+        '--project',
+        type=str,
+        help='Sync only a specific Todoist project by name (e.g., "Inbox", "Work")'
+    )
 
     args = parser.parse_args()
 
@@ -596,7 +613,8 @@ def main():
             args.config,
             verbose=args.verbose,
             dry_run=args.dry_run,
-            limit=args.limit
+            limit=args.limit,
+            single_project=args.project
         )
     except Exception as e:
         logger.error(f"Failed to initialize sync manager: {e}")

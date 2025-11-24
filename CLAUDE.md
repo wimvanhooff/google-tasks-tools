@@ -148,6 +148,7 @@ A template file (`todoist-to-gtasks.conf.template`) is provided with helpful com
 - **Verbose mode**: `--verbose` for detailed logging
 - **Dry-run mode**: `--dry-run` shows what would be done without making any changes
 - **Limit mode**: `--limit N` syncs only N tasks (useful for testing)
+- **Single project mode**: `--project "Name"` syncs only the specified Todoist project
 - **Custom config**: `--config` to specify alternate configuration file
 
 ### Usage Commands
@@ -164,6 +165,9 @@ python todoist-to-gtasks.py --limit 5
 
 # Combining dry-run with limit and verbose (perfect for testing)
 python todoist-to-gtasks.py --dry-run --limit 10 --verbose
+
+# Sync only a specific project
+python todoist-to-gtasks.py --project "Work" --verbose
 
 # Daemon mode (continuous sync every 15 minutes)
 python todoist-to-gtasks.py --daemon
