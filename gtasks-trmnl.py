@@ -2,12 +2,16 @@
 """
 Google Tasks Starred Tasks to TRMNL List Sync Tool
 
-Syncs tasks marked with ⭐ emoji from all Google Tasks lists into a dedicated
-"TRMNL" list. The TRMNL list acts as a consolidated view of all starred tasks
-for display on TRMNL devices.
+Syncs tasks marked with ⭐ emoji or * asterisk from all Google Tasks lists into
+a dedicated "TRMNL" list. The TRMNL list acts as a consolidated view of all
+starred tasks for display on TRMNL devices.
 
 Note: Google Tasks API doesn't expose native starred status, so this tool
-uses ⭐ emoji as a marker in task titles or notes.
+uses ⭐ emoji or * asterisk as markers in task titles or notes.
+
+Starring methods:
+- ⭐ emoji at the end of title or notes (e.g., "Important task ⭐")
+- * asterisk at the end of title or notes (e.g., "Important task *")
 """
 
 import argparse
@@ -216,28 +220,45 @@ class TRMNLSyncManager:
             return []
 
     def is_task_starred(self, task: Dict) -> bool:
-        """Check if a task is marked with star emoji.
+        """Check if a task is marked with star emoji or asterisk at the end.
 
         Args:
             task: Task dictionary from Google Tasks API
 
         Returns:
-            True if task has ⭐ in title or notes
+            True if task has ⭐ or * at the end of title or notes
         """
         title = task.get('title', '')
         notes = task.get('notes', '')
-        return '⭐' in title or '⭐' in notes
+
+        # Check for star emoji at the end of title or notes
+        if title.strip().endswith('⭐') or notes.strip().endswith('⭐'):
+            return True
+
+        # Check for asterisk at the end of title or notes (after stripping whitespace)
+        if title.strip().endswith('*') or notes.strip().endswith('*'):
+            return True
+
+        return False
 
     def strip_star_emoji(self, text: str) -> str:
-        """Remove star emoji from text for clean TRMNL display.
+        """Remove star emoji and trailing asterisk from text for clean TRMNL display.
 
         Args:
-            text: Original text with potential star emoji
+            text: Original text with potential star emoji or asterisk at the end
 
         Returns:
-            Text with star emoji removed and whitespace cleaned
+            Text with star emoji and trailing asterisk removed, whitespace cleaned
         """
-        return text.replace('⭐', '').strip()
+        # Remove star emoji
+        text = text.replace('⭐', '')
+
+        # Remove trailing asterisk (and any preceding whitespace)
+        text = text.strip()
+        if text.endswith('*'):
+            text = text[:-1].strip()
+
+        return text
 
     def get_trmnl_list_id(self) -> Optional[str]:
         """Find the TRMNL list ID.

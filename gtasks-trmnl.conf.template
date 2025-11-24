@@ -2,7 +2,7 @@
   "_comment_1": "=== Google Tasks to TRMNL List Sync Configuration ===",
   "_comment_2": "Copy this file to 'gtasks-trmnl.conf' and fill in your details",
   "_comment_3": "",
-  "_comment_overview": "This tool syncs tasks marked with ⭐ emoji from all your Google Tasks lists into a single 'TRMNL' list for display on TRMNL devices.",
+  "_comment_overview": "This tool syncs tasks marked with ⭐ emoji or * asterisk from all your Google Tasks lists into a single 'TRMNL' list for display on TRMNL devices.",
   "_comment_4": "",
 
   "_comment_google": "Google API credentials - download from Google Cloud Console (https://console.cloud.google.com/)",
@@ -32,8 +32,8 @@
 
   "_comment_6": "",
   "_comment_starring": "=== How to Star Tasks ===",
-  "_comment_starring_2": "Google Tasks API doesn't expose native starred status, so this tool uses ⭐ emoji as a marker.",
-  "_comment_starring_3": "Add ⭐ to any task's title or notes to mark it for syncing.",
-  "_comment_starring_4": "Example: '⭐ Important meeting' or add '⭐' anywhere in the notes.",
-  "_comment_starring_5": "The ⭐ will be removed from the TRMNL copy for clean display."
+  "_comment_starring_2": "Google Tasks API doesn't expose native starred status, so this tool uses markers at the end.",
+  "_comment_starring_3": "Method 1: Add ⭐ emoji at the end of title or notes (e.g., 'Important meeting ⭐')",
+  "_comment_starring_4": "Method 2: Add * asterisk at the end of title or notes (e.g., 'Important meeting *')",
+  "_comment_starring_5": "Both markers will be removed from the TRMNL copy for clean display."
 }
