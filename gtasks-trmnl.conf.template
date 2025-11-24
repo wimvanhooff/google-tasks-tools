@@ -1,0 +1,39 @@
+{
+  "_comment_1": "=== Google Tasks to TRMNL List Sync Configuration ===",
+  "_comment_2": "Copy this file to 'gtasks-trmnl.conf' and fill in your details",
+  "_comment_3": "",
+  "_comment_overview": "This tool syncs tasks marked with ⭐ emoji from all your Google Tasks lists into a single 'TRMNL' list for display on TRMNL devices.",
+  "_comment_4": "",
+
+  "_comment_google": "Google API credentials - download from Google Cloud Console (https://console.cloud.google.com/)",
+  "_comment_google_2": "1. Create a project and enable Google Tasks API",
+  "_comment_google_3": "2. Create OAuth 2.0 credentials (Desktop application)",
+  "_comment_google_4": "3. Download as credentials.json",
+  "google_credentials_file": "credentials.json",
+
+  "_comment_token": "OAuth token file (auto-generated after first successful authentication)",
+  "google_token_file": "token.json",
+
+  "_comment_5": "",
+  "sync_settings": {
+    "_comment_trmnl": "Name of the Google Tasks list to sync starred tasks into",
+    "_comment_trmnl_2": "This list must already exist - create it manually before running the tool",
+    "trmnl_list_name": "TRMNL",
+
+    "_comment_source": "Optional: List names to scan for starred tasks (empty array = scan all lists)",
+    "_comment_source_2": "Example: [\"Work\", \"Personal\"] to only sync starred tasks from those lists",
+    "_comment_source_3": "Leave empty [] to scan all lists except the TRMNL list itself",
+    "source_lists": [],
+
+    "_comment_interval": "How often to sync in daemon mode (minutes)",
+    "_comment_interval_2": "Only applies when running with --daemon flag",
+    "sync_interval_minutes": 15
+  },
+
+  "_comment_6": "",
+  "_comment_starring": "=== How to Star Tasks ===",
+  "_comment_starring_2": "Google Tasks API doesn't expose native starred status, so this tool uses ⭐ emoji as a marker.",
+  "_comment_starring_3": "Add ⭐ to any task's title or notes to mark it for syncing.",
+  "_comment_starring_4": "Example: '⭐ Important meeting' or add '⭐' anywhere in the notes.",
+  "_comment_starring_5": "The ⭐ will be removed from the TRMNL copy for clean display."
+}

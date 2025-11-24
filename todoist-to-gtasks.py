@@ -354,6 +354,44 @@ class ProjectSyncManager:
                 logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
+    def get_project_sections(self, project_id: str) -> Dict[str, str]:
+        """Get all sections in a project, returning a dict of section_id -> section_name."""
+        try:
+            if project_id == 'inbox':
+                # Inbox doesn't have sections
+                return {}
+
+            # get_sections() returns a list, not a paginator
+            sections_list = self.todoist.get_sections(project_id=project_id)
+
+            # Handle both single list and paginated results
+            sections = []
+            if hasattr(sections_list, '__iter__'):
+                # Check if it's a paginator by trying to iterate
+                try:
+                    for item in sections_list:
+                        if isinstance(item, list):
+                            # It's paginated - item is a list of sections
+                            sections.extend(item)
+                        else:
+                            # It's a direct list - item is a section
+                            sections.append(item)
+                except:
+                    sections = list(sections_list)
+
+            sections_dict = {str(section.id): section.name for section in sections}
+
+            if self.verbose and sections_dict:
+                logger.info(f"Found {len(sections_dict)} section(s): {list(sections_dict.values())}")
+
+            return sections_dict
+        except Exception as e:
+            logger.error(f"Error fetching sections for project {project_id}: {e}")
+            if self.verbose:
+                import traceback
+                logger.error(f"Full traceback: {traceback.format_exc()}")
+            return {}
+
     def sync_all_projects(self):
         """Main sync loop: sync all Todoist projects to Google Tasks lists."""
         logger.info("Starting Todoist → Google Tasks project sync...")
@@ -385,31 +423,58 @@ class ProjectSyncManager:
         for project in projects_to_sync:
             logger.info(f"\nProcessing project: '{project.name}'")
 
-            # Find or create corresponding Google Tasks list
-            list_id = self.find_or_create_gtasks_list(project.name)
-            if not list_id:
-                logger.error(f"Could not get list ID for project '{project.name}', skipping")
-                continue
-
-            # Get existing tasks in Google Tasks list
-            existing_gtasks = self.get_gtasks_in_list(list_id)
-            if self.verbose:
-                logger.info(f"Found {len(existing_gtasks)} existing Google Task(s) in list")
+            # Get sections for this project
+            sections = self.get_project_sections(str(project.id))
 
             # Get all tasks in this project
             tasks = self.get_todoist_tasks_by_project(str(project.id))
             logger.info(f"Found {len(tasks)} task(s) in project '{project.name}'")
 
-            # Sync each task
+            # Group tasks by section
+            tasks_by_section = {}  # section_id -> [tasks]
             for task in tasks:
-                # Check limit
-                if self.limit and total_tasks >= self.limit:
-                    logger.info(f"\n⚠ Limit of {self.limit} tasks reached, stopping sync")
-                    total_limit_reached = True
+                section_id = getattr(task, 'section_id', None)
+                section_id_str = str(section_id) if section_id else None
+
+                if section_id_str not in tasks_by_section:
+                    tasks_by_section[section_id_str] = []
+                tasks_by_section[section_id_str].append(task)
+
+            # Process each section (or no section)
+            for section_id, section_tasks in tasks_by_section.items():
+                if total_limit_reached:
                     break
 
-                if self.sync_task_to_gtasks(task, list_id, existing_gtasks):
-                    total_tasks += 1
+                # Determine list name
+                if section_id and section_id in sections:
+                    list_name = f"{project.name} - {sections[section_id]}"
+                else:
+                    list_name = project.name
+
+                if self.verbose:
+                    logger.info(f"\nProcessing section: '{list_name}' ({len(section_tasks)} tasks)")
+
+                # Find or create corresponding Google Tasks list
+                list_id = self.find_or_create_gtasks_list(list_name)
+                if not list_id:
+                    logger.error(f"Could not get list ID for '{list_name}', skipping")
+                    continue
+
+                # Get existing tasks in Google Tasks list
+                existing_gtasks = self.get_gtasks_in_list(list_id)
+                if self.verbose:
+                    logger.info(f"Found {len(existing_gtasks)} existing Google Task(s) in list")
+
+                # Sync each task in this section
+                for task in section_tasks:
+                    # Check limit
+                    if self.limit and total_tasks >= self.limit:
+                        logger.info(f"\n⚠ Limit of {self.limit} tasks reached, stopping sync")
+                        total_limit_reached = True
+                        break
+
+                    if self.sync_task_to_gtasks(task, list_id, existing_gtasks):
+                        total_tasks += 1
 
             # Break outer loop if limit reached
             if total_limit_reached:

@@ -18,3 +18,7 @@ todoist-to-gtasks.conf
 # Google Tasks recurring tasks files (keep .template tracked)
 gtasks-recurring.conf
 recurring_config.json
+
+# Google Tasks TRMNL sync files (keep .template tracked)
+gtasks-trmnl.conf
+gtasks-trmnl-mappings.json

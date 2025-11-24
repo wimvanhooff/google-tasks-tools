@@ -6,8 +6,259 @@ This repository contains a collection of tools for working with Google Tasks:
 1. **Todoist-Google Tasks Sync Tool** (`todoist-sync.py`) - Bidirectional synchronization between Todoist and Google Tasks
 2. **Todoist to Google Tasks Project Sync** (`todoist-to-gtasks.py`) - One-way sync from Todoist projects to Google Tasks lists
 3. **Recurring Tasks Tool** (`gtasks-recurring.py`) - Implements repeat-after-completion functionality for Google Tasks
+4. **Starred Tasks to TRMNL Sync** (`gtasks-trmnl.py`) - Syncs starred tasks from all lists into a consolidated TRMNL display list
 
 Additional Google Tasks utilities may be added in future development.
+
+---
+
+## Starred Tasks to TRMNL Sync
+
+### Overview
+This tool syncs tasks marked with ⭐ emoji from all Google Tasks lists into a dedicated "TRMNL" list. This provides a consolidated view of all your starred/important tasks for display on TRMNL devices or other purposes.
+
+**Important Note**: Google Tasks API doesn't expose native starred status despite this feature being available in the UI since 2022. This tool uses ⭐ emoji as a marker in task titles or notes as a workaround.
+
+### Core Functionality
+
+#### Sync Behavior
+- **Starring Method**: Detects ⭐ emoji in task title or notes
+- **Direction**: One-way sync (source lists → TRMNL list)
+- **Scope**: All active (incomplete) starred tasks from all lists
+- **Star Emoji Handling**: Removes ⭐ from TRMNL copies for clean display
+- **Updates**: Syncs changes to title, notes, and due date
+- **Cleanup**: Automatically removes TRMNL copies when original is un-starred, deleted, or completed
+- **Completion**: TRMNL list is read-only - completions don't sync back to originals
+- **List Exclusion**: Never scans the TRMNL list itself (prevents infinite loops)
+
+#### Key Components
+
+##### TRMNLSyncManager Class
+Main orchestrator that handles:
+- Configuration management (`gtasks-trmnl.conf`)
+- Task ID mappings (`gtasks-trmnl-mappings.json`)
+- Google Tasks API initialization (OAuth2)
+- Starred task detection and sync logic
+- Cleanup of stale TRMNL tasks
+
+##### Core Methods
+
+**`is_task_starred(task)`** - Star detection
+- Checks for ⭐ emoji in title or notes
+- Returns boolean decision
+
+**`strip_star_emoji(text)`** - Text cleaning
+- Removes ⭐ from text for clean TRMNL display
+- Trims excess whitespace
+
+**`get_all_starred_tasks()`** - Task discovery
+- Scans all source lists (or configured subset)
+- Excludes TRMNL list itself
+- Returns dictionary of list_id → starred tasks
+- Only includes active (incomplete) tasks
+
+**`sync_starred_tasks()`** - Main sync logic
+- For each starred task:
+  - If unmapped: Create duplicate in TRMNL (without ⭐)
+  - If mapped: Check for updates, sync if changed
+- Tracks all valid original task IDs for cleanup
+
+**`cleanup_trmnl_tasks(valid_original_ids)`** - Stale task removal
+- Deletes TRMNL tasks whose originals are:
+  - No longer starred (⭐ removed)
+  - Deleted from source list
+  - Completed in source list
+- Also deletes completed TRMNL tasks
+- Updates mappings automatically
+
+**`task_needs_update(original, trmnl)`** - Change detection
+- Compares cleaned title, notes, and due date
+- Returns True if TRMNL copy needs updating
+- Strips ⭐ from original before comparison
+
+**`get_trmnl_list_id()`** - List lookup
+- Finds TRMNL list by configured name
+- Returns None if not found (with error)
+
+#### Configuration Files
+
+**`gtasks-trmnl.conf`** - Main configuration (auto-created on first run)
+
+A template file (`gtasks-trmnl.conf.template`) is provided with helpful comments.
+
+```json
+{
+  "google_credentials_file": "credentials.json",
+  "google_token_file": "token.json",
+  "sync_settings": {
+    "trmnl_list_name": "TRMNL",
+    "source_lists": [],
+    "sync_interval_minutes": 15
+  }
+}
+```
+
+**Configuration Options**:
+- `google_credentials_file`: OAuth2 client credentials from Google Cloud Console
+- `google_token_file`: Cached access/refresh tokens (auto-generated)
+- `trmnl_list_name`: Name of the TRMNL list (must already exist)
+- `source_lists`: List names to scan (empty array = all lists except TRMNL)
+- `sync_interval_minutes`: How often to sync in daemon mode (default: 15)
+
+**`gtasks-trmnl-mappings.json`** - ID relationship tracking
+```json
+{
+  "original_to_trmnl": {"original_task_id": "trmnl_task_id"},
+  "trmnl_to_original": {"trmnl_task_id": "original_task_id"},
+  "last_sync": "2025-01-24T12:00:00Z"
+}
+```
+
+#### How to Star Tasks
+
+Since the Google Tasks API doesn't expose native starred status, use one of these methods:
+
+1. **In title**: `⭐ Important meeting`
+2. **In notes**: Add `⭐` anywhere in the task description/notes
+
+The tool scans both fields. The ⭐ emoji will be automatically removed from the TRMNL copy for clean display.
+
+#### Error Handling & Logging
+- Dual logging: INFO/WARNING to stdout, ERROR/CRITICAL to stderr
+- Verbose mode provides detailed sync decision logging
+- Graceful handling of API failures
+- Continues processing remaining tasks on individual failures
+- Comprehensive error tracking with stack traces in verbose mode
+
+#### Operational Modes
+- **One-time sync** (default): Runs a single sync cycle and exits - ideal for cron jobs
+- **Daemon mode**: `--daemon` flag enables continuous sync at configured intervals
+- **Dry-run mode**: `--dry-run` shows what would be done without making any changes
+- **Verbose mode**: `--verbose` for detailed logging
+- **Custom config**: `--config` to specify alternate configuration file
+- **Custom interval**: `--interval X` to override configured sync interval (daemon mode only)
+
+### Usage Commands
+
+```bash
+# One-time sync (default - ideal for cron/scheduled jobs)
+python gtasks-trmnl.py
+
+# Dry-run mode (see what would be done without making changes)
+python gtasks-trmnl.py --dry-run
+
+# Daemon mode (continuous sync every 15 minutes)
+python gtasks-trmnl.py --daemon
+
+# Daemon mode with custom interval (check every 5 minutes)
+python gtasks-trmnl.py --daemon --interval 5
+
+# Verbose logging
+python gtasks-trmnl.py --verbose
+
+# Custom config file
+python gtasks-trmnl.py --config my_config.json
+
+# Combining options (dry-run with verbose logging)
+python gtasks-trmnl.py --dry-run --verbose
+
+# Combining options (daemon mode with verbose logging)
+python gtasks-trmnl.py --daemon --verbose
+```
+
+### Setup Instructions
+
+1. **Google Cloud Console Setup**:
+   - Create a project in [Google Cloud Console](https://console.cloud.google.com/)
+   - Enable the Google Tasks API
+   - Create OAuth 2.0 credentials (Desktop application)
+   - Download credentials as `credentials.json`
+
+2. **Create TRMNL List**:
+   - Open Google Tasks (web or mobile)
+   - Create a new list named "TRMNL" (or your preferred name)
+   - This list must exist before running the tool
+
+3. **First Run**:
+   ```bash
+   python gtasks-trmnl.py
+   ```
+   - Will create default `gtasks-trmnl.conf` if missing
+   - Will open browser for OAuth consent (first time only)
+   - Will save token to `token.json` for future use
+
+4. **Configure** (optional):
+   ```bash
+   # Option: Use the provided template
+   cp gtasks-trmnl.conf.template gtasks-trmnl.conf
+   ```
+   - Edit `gtasks-trmnl.conf` to customize TRMNL list name or source lists
+   - Leave `source_lists` empty to scan all lists
+   - Template includes helpful comments explaining each option
+
+5. **Test with Dry-Run** (recommended):
+   ```bash
+   python gtasks-trmnl.py --dry-run --verbose
+   ```
+   - Safely preview what would be synced without making any changes
+   - Verbose mode shows detailed processing information
+
+6. **Star Some Tasks**:
+   - Add ⭐ emoji to task titles or notes in any list
+   - Run the tool to sync them to TRMNL list
+
+### Example Workflow
+
+1. In your "Work" list, create task: "⭐ Finish presentation"
+2. In your "Personal" list, add ⭐ to notes of "Buy groceries"
+3. Run `python gtasks-trmnl.py`
+4. Both tasks now appear in TRMNL list as:
+   - "Finish presentation" (⭐ removed)
+   - "Buy groceries" (⭐ removed)
+5. Complete "Finish presentation" in the Work list
+6. Run sync again - task is removed from TRMNL
+7. Remove ⭐ from "Buy groceries"
+8. Run sync again - task is removed from TRMNL
+
+### Use Cases
+
+**When to use this tool:**
+- **TRMNL Display**: Consolidate starred tasks for display on TRMNL e-ink devices
+- **Quick View**: Single list showing all important tasks across multiple projects/lists
+- **Focus List**: Create a "what matters today" view from starred tasks
+- **Cross-List Priority**: Track high-priority items regardless of which list they're in
+
+**Common Workflows:**
+1. **Daily Focus**: Star today's priorities across all lists, view consolidated in TRMNL
+2. **TRMNL Device**: Sync starred tasks to display on e-ink device for at-a-glance viewing
+3. **VIP Tasks**: Use ⭐ for critical items that need visibility regardless of organization
+4. **Temporary Priority**: Star tasks temporarily, they auto-remove from TRMNL when un-starred
+
+### API Limitation Details
+
+**Why use ⭐ emoji instead of native stars?**
+
+Google Tasks added a starred/favorite feature to the UI (web and mobile apps) in June 2022, but as of January 2025, this feature is **not exposed in the Google Tasks API**. The API provides no field or filter for starred status.
+
+This limitation has been documented in:
+- [Google Tasks API Reference](https://developers.google.com/tasks/reference/rest/v1/tasks) - No starred field
+- Stack Overflow discussions confirming the limitation
+- Community requests for API support
+
+**Workaround**: Using ⭐ emoji marker in title/notes fields (which ARE accessible via API) provides equivalent functionality with the following advantages:
+- Works reliably across all platforms
+- API-accessible for automation
+- Visual indicator in the UI
+- Easy to add/remove manually
+
+### Automation with Cron
+
+Run automatically every 15 minutes:
+```bash
+*/15 * * * * cd /path/to/google-tasks-tools && python gtasks-trmnl.py >> trmnl_sync.log 2>&1
+```
+
+Or use daemon mode with systemd/supervisor for continuous operation.
 
 ---
 
