@@ -1,18 +1,13 @@
-{
-  "_comment_1": "=== Google Tasks Recurring Task Manager Configuration ===",
-  "_comment_2": "Copy this file to 'gtasks-recurring.conf' and customize as needed",
-  "_comment_3": "",
+# Google Tasks Recurring Task Manager Configuration
+# Copy this file to 'gtasks-recurring.conf' and customize as needed
 
-  "_comment_google": "Google API credentials - download from Google Cloud Console",
-  "google_credentials_file": "credentials.json",
-  "google_token_file": "token.json",
+# Google API credentials - download from Google Cloud Console
+google_credentials_file = credentials.json
+google_token_file = token.json
 
-  "settings": {
-    "_comment_interval": "How often to check for completed tasks in daemon mode (minutes)",
-    "check_interval_minutes": 15,
+# How often to check for completed tasks in daemon mode (minutes)
+check_interval_minutes = 15
 
-    "_comment_lists": "Specific task list names to process (empty array = all lists)",
-    "_example_lists": ["My Tasks", "Work"],
-    "target_lists": []
-  }
-}
+# Specific task list names to process (comma-separated, empty = all lists)
+# Example: target_lists = My Tasks, Work
+target_lists =

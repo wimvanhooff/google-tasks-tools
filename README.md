@@ -121,6 +121,15 @@ Each tool uses its own configuration file with a `.template` version provided:
 - `gtasks-recurring.conf` / `gtasks-recurring.conf.template`
 - `gtasks-trmnl.conf` / `gtasks-trmnl.conf.template`
 
+Configuration files use a simple `key = value` format with `#` comments:
+```
+# Example configuration
+todoist_token = your_api_token_here
+google_credentials_file = credentials.json
+sync_labels = urgent, important, sync
+sync_interval_minutes = 15
+```
+
 Configuration files are auto-created on first run, or you can copy from templates:
 ```bash
 cp todoist-sync.conf.template todoist-sync.conf
@@ -144,7 +153,7 @@ python3 script.py --verbose
 python3 script.py --daemon
 
 # Custom configuration file
-python3 script.py --config my_config.json
+python3 script.py --config my_config.conf
 
 # Combine options
 python3 script.py --dry-run --verbose

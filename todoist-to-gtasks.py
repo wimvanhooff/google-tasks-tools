@@ -15,7 +15,6 @@ Setup:
 3. Configure sync settings in project_sync_config.json
 """
 
-import json
 import os
 import logging
 import sys
@@ -23,6 +22,8 @@ import re
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Tuple
 import time
+
+from confparser import load_config, create_default_config
 
 # Third-party imports
 from todoist_api_python.api import TodoistAPI
@@ -76,7 +77,10 @@ class ProjectSyncManager:
     """Manages one-way synchronization from Todoist projects to Google Tasks lists."""
 
     def __init__(self, config_file: str = "todoist-to-gtasks.conf", verbose: bool = False, dry_run: bool = False, limit: Optional[int] = None, single_project: Optional[str] = None):
-        self.config_file = config_file
+        # Resolve paths relative to script directory for cron compatibility
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.config_file = os.path.join(script_dir, config_file) if not os.path.isabs(config_file) else config_file
+        self.mapping_file = os.path.join(script_dir, "todoist-to-gtasks-mappings.json")
         self.verbose = verbose
         self.dry_run = dry_run
         self.limit = limit
@@ -96,30 +100,57 @@ class ProjectSyncManager:
 
     def load_config(self):
         """Load configuration from file or create default."""
-        default_config = {
-            "todoist_token": "",
-            "google_credentials_file": "credentials.json",
-            "google_token_file": "token.json",
-            "sync_settings": {
-                "excluded_projects": [],
-                "sync_interval_minutes": 15,
-                "inbox_list_name": "Todoist Inbox"
-            }
+        default_template = """# Todoist to Google Tasks One-Way Sync Configuration
+# Copy this file to 'todoist-to-gtasks.conf' and fill in your details
+
+# Get your Todoist API token from: https://todoist.com/prefs/integrations
+todoist_token = YOUR_TODOIST_API_TOKEN_HERE
+
+# Google API credentials - download from Google Cloud Console
+google_credentials_file = credentials.json
+google_token_file = token.json
+
+# List of Todoist project names to skip (comma-separated, optional)
+excluded_projects =
+
+# How often to sync in daemon mode (minutes)
+sync_interval_minutes = 15
+
+# Name for the Google Tasks list that receives inbox tasks
+inbox_list_name = Todoist Inbox
+"""
+
+        defaults = {
+            'todoist_token': '',
+            'google_credentials_file': 'credentials.json',
+            'google_token_file': 'token.json',
+            'excluded_projects': [],
+            'sync_interval_minutes': 15,
+            'inbox_list_name': 'Todoist Inbox'
         }
 
-        if os.path.exists(self.config_file):
-            with open(self.config_file, 'r') as f:
-                self.config = json.load(f)
-        else:
-            self.config = default_config
-            self.save_config()
+        if not os.path.exists(self.config_file):
+            create_default_config(self.config_file, default_template)
             logger.warning(f"Created default config file: {self.config_file}")
             logger.warning("Please update with your API credentials!")
 
-    def save_config(self):
-        """Save configuration to file."""
-        with open(self.config_file, 'w') as f:
-            json.dump(self.config, f, indent=2)
+        self.config = load_config(self.config_file, defaults)
+
+        # Resolve credential paths relative to script directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        for key in ('google_credentials_file', 'google_token_file'):
+            if self.config.get(key) and not os.path.isabs(self.config[key]):
+                self.config[key] = os.path.join(script_dir, self.config[key])
+
+        # Handle excluded_projects as string (if not parsed as list)
+        if isinstance(self.config.get('excluded_projects'), str):
+            projects = self.config['excluded_projects']
+            if projects:
+                self.config['excluded_projects'] = [
+                    proj.strip() for proj in projects.split(',') if proj.strip()
+                ]
+            else:
+                self.config['excluded_projects'] = []
 
     def _init_google_tasks(self):
         """Initialize Google Tasks API client."""
@@ -168,7 +199,7 @@ class ProjectSyncManager:
             # Add special "Inbox" project (represented by project_id=None in tasks)
             inbox_project = type('obj', (object,), {
                 'id': 'inbox',
-                'name': self.config['sync_settings'].get('inbox_list_name', 'Todoist Inbox'),
+                'name': self.config.get('inbox_list_name', 'Todoist Inbox'),
                 'is_inbox': True
             })()
 
@@ -398,7 +429,7 @@ class ProjectSyncManager:
 
         # Get all projects
         projects = self.get_todoist_projects()
-        excluded = self.config['sync_settings'].get('excluded_projects', [])
+        excluded = self.config.get('excluded_projects', [])
 
         # Filter to single project if specified
         if self.single_project:
@@ -502,7 +533,7 @@ class ProjectSyncManager:
 
     def run_continuous_sync(self):
         """Run continuous synchronization with specified interval."""
-        interval = self.config['sync_settings']['sync_interval_minutes']
+        interval = self.config['sync_interval_minutes']
         logger.info(f"Starting continuous sync with {interval} minute intervals")
         logger.info("Press Ctrl+C to stop")
 
@@ -584,7 +615,7 @@ def main():
     if args.verbose:
         logger.info("Configuration loaded successfully")
         logger.info(f"Todoist token: {'*' * 10}...{sync_manager.config['todoist_token'][-4:]}")
-        logger.info(f"Config: {sync_manager.config['sync_settings']}")
+        logger.info(f"Config: excluded_projects={sync_manager.config.get('excluded_projects')}, inbox_list_name={sync_manager.config.get('inbox_list_name')}")
 
     # Run synchronization
     if args.daemon:

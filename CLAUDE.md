@@ -84,23 +84,26 @@ Main orchestrator that handles:
 
 A template file (`gtasks-trmnl.conf.template`) is provided with helpful comments.
 
-```json
-{
-  "google_credentials_file": "credentials.json",
-  "google_token_file": "token.json",
-  "sync_settings": {
-    "trmnl_list_name": "TRMNL",
-    "source_lists": [],
-    "sync_interval_minutes": 15
-  }
-}
+```
+# Google API credentials - download from Google Cloud Console
+google_credentials_file = credentials.json
+google_token_file = token.json
+
+# Name of the TRMNL list (must already exist)
+trmnl_list_name = TRMNL
+
+# List names to scan (comma-separated, empty = all lists except TRMNL)
+source_lists =
+
+# How often to sync in daemon mode (minutes)
+sync_interval_minutes = 15
 ```
 
 **Configuration Options**:
 - `google_credentials_file`: OAuth2 client credentials from Google Cloud Console
 - `google_token_file`: Cached access/refresh tokens (auto-generated)
 - `trmnl_list_name`: Name of the TRMNL list (must already exist)
-- `source_lists`: List names to scan (empty array = all lists except TRMNL)
+- `source_lists`: List names to scan (comma-separated, empty = all lists except TRMNL)
 - `sync_interval_minutes`: How often to sync in daemon mode (default: 15)
 
 **`gtasks-trmnl-mappings.json`** - ID relationship tracking
@@ -155,7 +158,7 @@ python gtasks-trmnl.py --daemon --interval 5
 python gtasks-trmnl.py --verbose
 
 # Custom config file
-python gtasks-trmnl.py --config my_config.json
+python gtasks-trmnl.py --config my_config.conf
 
 # Combining options (dry-run with verbose logging)
 python gtasks-trmnl.py --dry-run --verbose
@@ -328,24 +331,29 @@ Main orchestrator that handles:
 
 A template file (`todoist-to-gtasks.conf.template`) is provided with helpful comments.
 
-```json
-{
-  "todoist_token": "your_api_token",
-  "google_credentials_file": "credentials.json",
-  "google_token_file": "token.json",
-  "sync_settings": {
-    "excluded_projects": [],
-    "sync_interval_minutes": 15,
-    "inbox_list_name": "Todoist Inbox"
-  }
-}
+```
+# Get your Todoist API token from: https://todoist.com/prefs/integrations
+todoist_token = YOUR_TODOIST_API_TOKEN_HERE
+
+# Google API credentials - download from Google Cloud Console
+google_credentials_file = credentials.json
+google_token_file = token.json
+
+# List of Todoist project names to skip (comma-separated, optional)
+excluded_projects =
+
+# How often to sync in daemon mode (minutes)
+sync_interval_minutes = 15
+
+# Name for the Google Tasks list that receives inbox tasks
+inbox_list_name = Todoist Inbox
 ```
 
 **Configuration Options**:
 - `todoist_token`: Your Todoist API token
 - `google_credentials_file`: OAuth2 client credentials from Google Cloud Console
 - `google_token_file`: Cached access/refresh tokens (auto-generated)
-- `excluded_projects`: List of project names to skip (e.g., ["Archive", "Someday"])
+- `excluded_projects`: List of project names to skip (comma-separated, e.g., `Archive, Someday`)
 - `sync_interval_minutes`: How often to sync in daemon mode (default: 15)
 - `inbox_list_name`: Name for the Google Tasks list that receives inbox tasks
 
@@ -406,7 +414,7 @@ python todoist-to-gtasks.py --daemon
 python todoist-to-gtasks.py --verbose
 
 # Custom config file
-python todoist-to-gtasks.py --config my_config.json
+python todoist-to-gtasks.py --config my_config.conf
 
 # Combining options (daemon mode with verbose logging)
 python todoist-to-gtasks.py --daemon --verbose
@@ -552,18 +560,25 @@ Main orchestrator that handles:
 
 A template file (`todoist-sync.conf.template`) is provided with helpful comments.
 
-```json
-{
-  "todoist_token": "your_api_token",
-  "google_credentials_file": "credentials.json",
-  "google_token_file": "token.json",
-  "sync_settings": {
-    "sync_priority_tasks": true,
-    "sync_labels": ["urgent", "important", "sync"],
-    "target_gtasks_list": "@default",
-    "sync_interval_minutes": 15
-  }
-}
+```
+# Get your Todoist API token from: https://todoist.com/prefs/integrations
+todoist_token = YOUR_TODOIST_API_TOKEN_HERE
+
+# Google API credentials - download from Google Cloud Console
+google_credentials_file = credentials.json
+google_token_file = token.json
+
+# Sync tasks with priority 2+ (p3, p2, p1 in Todoist)
+sync_priority_tasks = true
+
+# Sync tasks with any of these labels (comma-separated)
+sync_labels = urgent, important, sync
+
+# Target Google Tasks list name, or '@default' for default list
+target_gtasks_list = @default
+
+# How often to sync in daemon mode (minutes)
+sync_interval_minutes = 15
 ```
 
 **`todoist-sync-mappings.json`** - ID relationship tracking
@@ -605,7 +620,7 @@ python todoist-sync.py --daemon
 python todoist-sync.py --verbose
 
 # Custom config file
-python todoist-sync.py --config my_config.json
+python todoist-sync.py --config my_config.conf
 
 # Combining options (daemon mode with verbose logging)
 python todoist-sync.py --daemon --verbose
@@ -697,22 +712,23 @@ Main orchestrator that handles:
 
 A template file (`gtasks-recurring.conf.template`) is provided with helpful comments.
 
-```json
-{
-  "google_credentials_file": "credentials.json",
-  "google_token_file": "token.json",
-  "settings": {
-    "check_interval_minutes": 15,
-    "target_lists": []
-  }
-}
+```
+# Google API credentials - download from Google Cloud Console
+google_credentials_file = credentials.json
+google_token_file = token.json
+
+# How often to check for completed tasks in daemon mode (minutes)
+check_interval_minutes = 15
+
+# Specific task list names to process (comma-separated, empty = all lists)
+target_lists =
 ```
 
 **Configuration Options**:
 - `google_credentials_file`: OAuth2 client credentials from Google Cloud Console
 - `google_token_file`: Cached access/refresh tokens (auto-generated)
 - `check_interval_minutes`: How often to check in daemon mode (default: 15)
-- `target_lists`: List of task list names to process (empty array = all lists)
+- `target_lists`: Task list names to process (comma-separated, empty = all lists)
 
 #### Date Calculation Details
 - **Baseline**: Uses the task's `completed` timestamp from Google Tasks API
@@ -753,7 +769,7 @@ python gtasks-recurring.py --daemon --interval 5
 python gtasks-recurring.py --verbose
 
 # Custom config file
-python gtasks-recurring.py --config my_config.json
+python gtasks-recurring.py --config my_config.conf
 
 # Combining options (dry-run with verbose logging)
 python gtasks-recurring.py --dry-run --verbose

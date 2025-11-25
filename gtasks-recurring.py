@@ -7,7 +7,6 @@ recreates them with updated due dates, implementing repeat-after-completion func
 """
 
 import argparse
-import json
 import logging
 import os
 import re
@@ -15,6 +14,8 @@ import sys
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+
+from confparser import load_config, create_default_config
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -74,7 +75,9 @@ class RecurringTaskManager:
             config_file: Path to the configuration file
             dry_run: If True, only report actions without making changes
         """
-        self.config_file = config_file
+        # Resolve paths relative to script directory for cron compatibility
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.config_file = os.path.join(script_dir, config_file) if not os.path.isabs(config_file) else config_file
         self.dry_run = dry_run
         self.config = self._load_config()
         self.gtasks = None
@@ -84,33 +87,55 @@ class RecurringTaskManager:
             logging.info("DRY-RUN MODE: No changes will be made")
 
     def _load_config(self) -> Dict:
-        """Load configuration from JSON file.
+        """Load configuration from plain .conf file.
 
         Returns:
             Configuration dictionary
         """
+        default_template = """# Google Tasks Recurring Task Manager Configuration
+# Copy this file to 'gtasks-recurring.conf' and customize as needed
+
+# Google API credentials - download from Google Cloud Console
+google_credentials_file = credentials.json
+google_token_file = token.json
+
+# How often to check for completed tasks in daemon mode (minutes)
+check_interval_minutes = 15
+
+# Specific task list names to process (comma-separated, empty = all lists)
+# Example: target_lists = My Tasks, Work
+target_lists =
+"""
+
+        defaults = {
+            'google_credentials_file': 'credentials.json',
+            'google_token_file': 'token.json',
+            'check_interval_minutes': 15,
+            'target_lists': []
+        }
+
         if not os.path.exists(self.config_file):
             logging.info(f"Config file not found, creating default: {self.config_file}")
-            default_config = {
-                "google_credentials_file": "credentials.json",
-                "google_token_file": "token.json",
-                "settings": {
-                    "check_interval_minutes": 15,
-                    "target_lists": []
-                }
-            }
-            with open(self.config_file, 'w') as f:
-                json.dump(default_config, f, indent=2)
-            return default_config
+            create_default_config(self.config_file, default_template)
 
-        try:
-            with open(self.config_file, 'r') as f:
-                config = json.load(f)
-                logging.info(f"Loaded configuration from {self.config_file}")
-                return config
-        except Exception as e:
-            logging.error(f"Failed to load config file: {e}")
-            raise
+        config = load_config(self.config_file, defaults)
+        logging.info(f"Loaded configuration from {self.config_file}")
+
+        # Handle target_lists as string (if not parsed as list)
+        if isinstance(config.get('target_lists'), str):
+            target_lists = config['target_lists']
+            if target_lists:
+                config['target_lists'] = [lst.strip() for lst in target_lists.split(',') if lst.strip()]
+            else:
+                config['target_lists'] = []
+
+        # Resolve credential paths relative to script directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        for key in ('google_credentials_file', 'google_token_file'):
+            if config.get(key) and not os.path.isabs(config[key]):
+                config[key] = os.path.join(script_dir, config[key])
+
+        return config
 
     def _init_google_tasks(self):
         """Initialize Google Tasks API with OAuth2 authentication."""
@@ -295,7 +320,7 @@ class RecurringTaskManager:
 
         # Get task lists to process
         all_lists = self.get_all_task_lists()
-        target_lists = self.config.get('settings', {}).get('target_lists', [])
+        target_lists = self.config.get('target_lists', [])
 
         # Filter to target lists if specified
         if target_lists:
@@ -354,7 +379,7 @@ class RecurringTaskManager:
             interval_minutes: Override config interval (optional)
         """
         if interval_minutes is None:
-            interval_minutes = self.config.get('settings', {}).get('check_interval_minutes', 15)
+            interval_minutes = self.config.get('check_interval_minutes', 15)
 
         interval_seconds = interval_minutes * 60
 

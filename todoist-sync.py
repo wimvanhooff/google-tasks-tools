@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from typing import List, Optional
 import time
 
+from confparser import load_config, create_default_config
+
 # Third-party imports
 from todoist_api_python.api import TodoistAPI
 from google.auth.transport.requests import Request
@@ -72,8 +74,10 @@ class TaskSyncManager:
     """Manages synchronization between Todoist and Google Tasks."""
     
     def __init__(self, config_file: str = "todoist-sync.conf", verbose: bool = False):
-        self.config_file = config_file
-        self.mapping_file = "todoist-sync-mappings.json"
+        # Resolve paths relative to script directory for cron compatibility
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.config_file = os.path.join(script_dir, config_file) if not os.path.isabs(config_file) else config_file
+        self.mapping_file = os.path.join(script_dir, "todoist-sync-mappings.json")
         self.verbose = verbose
         self.load_config()
         self.load_mappings()
@@ -231,31 +235,57 @@ class TaskSyncManager:
 
     def load_config(self):
         """Load configuration from file or create default."""
-        default_config = {
-            "todoist_token": "",
-            "google_credentials_file": "credentials.json",
-            "google_token_file": "token.json",
-            "sync_settings": {
-                "sync_priority_tasks": True,
-                "sync_labels": ["urgent", "important", "sync"],
-                "target_gtasks_list": "@default",  # Use @default for default list
-                "sync_interval_minutes": 15
-            }
+        default_template = """# Todoist-Google Tasks Bidirectional Sync Configuration
+# Copy this file to 'todoist-sync.conf' and fill in your details
+
+# Get your Todoist API token from: https://todoist.com/prefs/integrations
+todoist_token = YOUR_TODOIST_API_TOKEN_HERE
+
+# Google API credentials - download from Google Cloud Console
+google_credentials_file = credentials.json
+google_token_file = token.json
+
+# Sync tasks with priority 2+ (p3, p2, p1 in Todoist)
+sync_priority_tasks = true
+
+# Sync tasks with any of these labels (comma-separated)
+sync_labels = urgent, important, sync
+
+# Target Google Tasks list name, or '@default' for default list
+target_gtasks_list = @default
+
+# How often to sync in daemon mode (minutes)
+sync_interval_minutes = 15
+"""
+
+        defaults = {
+            'todoist_token': '',
+            'google_credentials_file': 'credentials.json',
+            'google_token_file': 'token.json',
+            'sync_priority_tasks': True,
+            'sync_labels': ['urgent', 'important', 'sync'],
+            'target_gtasks_list': '@default',
+            'sync_interval_minutes': 15
         }
-        
-        if os.path.exists(self.config_file):
-            with open(self.config_file, 'r') as f:
-                self.config = json.load(f)
-        else:
-            self.config = default_config
-            self.save_config()
+
+        if not os.path.exists(self.config_file):
+            create_default_config(self.config_file, default_template)
             logger.warning(f"Created default config file: {self.config_file}")
             logger.warning("Please update with your API credentials!")
-    
-    def save_config(self):
-        """Save configuration to file."""
-        with open(self.config_file, 'w') as f:
-            json.dump(self.config, f, indent=2)
+
+        self.config = load_config(self.config_file, defaults)
+
+        # Resolve credential paths relative to script directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        for key in ('google_credentials_file', 'google_token_file'):
+            if self.config.get(key) and not os.path.isabs(self.config[key]):
+                self.config[key] = os.path.join(script_dir, self.config[key])
+
+        # Handle sync_labels as string (if not parsed as list)
+        if isinstance(self.config.get('sync_labels'), str):
+            self.config['sync_labels'] = [
+                label.strip() for label in self.config['sync_labels'].split(',')
+            ]
     
     def load_mappings(self):
         """Load task ID mappings between platforms."""
@@ -310,7 +340,7 @@ class TaskSyncManager:
     
     def get_target_gtasks_list_id(self) -> str:
         """Get the target Google Tasks list ID."""
-        target_list = self.config['sync_settings']['target_gtasks_list']
+        target_list = self.config['target_gtasks_list']
         
         if self.verbose:
             logger.info(f"Looking for Google Tasks list: '{target_list}'")
@@ -356,7 +386,7 @@ class TaskSyncManager:
     
     def should_sync_todoist_task(self, task) -> bool:
         """Check if a Todoist task should be synced."""
-        settings = self.config['sync_settings']
+        settings = self.config
         
         if self.verbose:
             logger.info(f"Evaluating task: '{task.content}' (ID: {task.id})")
@@ -496,8 +526,8 @@ class TaskSyncManager:
             if self.verbose:
                 logger.info(f"Found {len(all_tasks)} total Todoist tasks")
                 logger.info("Current sync configuration:")
-                logger.info(f"  sync_priority_tasks: {self.config['sync_settings'].get('sync_priority_tasks', False)}")
-                logger.info(f"  sync_labels: {self.config['sync_settings'].get('sync_labels', [])}")
+                logger.info(f"  sync_priority_tasks: {self.config.get('sync_priority_tasks', False)}")
+                logger.info(f"  sync_labels: {self.config.get('sync_labels', [])}")
                 logger.info("")
             
             eligible_tasks = []
@@ -983,7 +1013,7 @@ class TaskSyncManager:
     
     def run_continuous_sync(self):
         """Run continuous synchronization with specified interval."""
-        interval = self.config['sync_settings']['sync_interval_minutes']
+        interval = self.config['sync_interval_minutes']
         logger.info(f"Starting continuous sync with {interval} minute intervals")
         logger.info("Press Ctrl+C to stop")
         
@@ -1030,7 +1060,7 @@ def main():
     if args.verbose:
         logger.info("Configuration loaded successfully")
         logger.info(f"Todoist token: {'*' * 10}...{sync_manager.config['todoist_token'][-4:]}")
-        logger.info(f"Config: {sync_manager.config['sync_settings']}")
+        logger.info(f"Config: sync_priority_tasks={sync_manager.config.get('sync_priority_tasks')}, sync_labels={sync_manager.config.get('sync_labels')}")
     
     # Run synchronization
     if args.daemon:

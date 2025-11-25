@@ -20,6 +20,8 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from confparser import load_config, create_default_config
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -77,8 +79,10 @@ class TRMNLSyncManager:
             config_file: Path to configuration file
             dry_run: If True, show what would be done without making changes
         """
-        self.config_file = config_file
-        self.mapping_file = 'gtasks-trmnl-mappings.json'
+        # Resolve paths relative to script directory for cron compatibility
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.config_file = os.path.join(script_dir, config_file) if not os.path.isabs(config_file) else config_file
+        self.mapping_file = os.path.join(script_dir, 'gtasks-trmnl-mappings.json')
         self.dry_run = dry_run
         self.config = self._load_config()
         self.mappings = self._load_mappings()
@@ -88,31 +92,62 @@ class TRMNLSyncManager:
             logging.info("DRY-RUN MODE: No changes will be made")
 
     def _load_config(self) -> Dict:
-        """Load configuration from JSON file."""
+        """Load configuration from plain .conf file."""
+        default_template = """# Google Tasks to TRMNL List Sync Configuration
+# Copy this file to 'gtasks-trmnl.conf' and fill in your details
+
+# Google API credentials - download from Google Cloud Console
+# 1. Create a project and enable Google Tasks API
+# 2. Create OAuth 2.0 credentials (Desktop application)
+# 3. Download as credentials.json
+google_credentials_file = credentials.json
+
+# OAuth token file (auto-generated after first successful authentication)
+google_token_file = token.json
+
+# Name of the Google Tasks list to sync tagged tasks into
+# This list must already exist - create it manually before running the tool
+trmnl_list_name = TRMNL
+
+# List names to scan for tagged tasks (comma-separated, empty = scan all lists)
+# Example: source_lists = Work, Personal
+source_lists =
+
+# How often to sync in daemon mode (minutes)
+sync_interval_minutes = 15
+"""
+
+        defaults = {
+            'google_credentials_file': 'credentials.json',
+            'google_token_file': 'token.json',
+            'trmnl_list_name': 'TRMNL',
+            'source_lists': [],
+            'sync_interval_minutes': 15
+        }
+
         if not os.path.exists(self.config_file):
             logging.info(f"Config file not found, creating default: {self.config_file}")
-            default_config = {
-                "google_credentials_file": "credentials.json",
-                "google_token_file": "token.json",
-                "sync_settings": {
-                    "trmnl_list_name": "TRMNL",
-                    "source_lists": [],
-                    "sync_interval_minutes": 15
-                }
-            }
-            with open(self.config_file, 'w') as f:
-                json.dump(default_config, f, indent=2)
+            create_default_config(self.config_file, default_template)
             logging.info(f"Created default config. Please review {self.config_file}")
-            return default_config
 
-        try:
-            with open(self.config_file, 'r') as f:
-                config = json.load(f)
-                logging.info(f"Loaded configuration from {self.config_file}")
-                return config
-        except Exception as e:
-            logging.error(f"Failed to load config file: {e}")
-            raise
+        config = load_config(self.config_file, defaults)
+        logging.info(f"Loaded configuration from {self.config_file}")
+
+        # Handle source_lists as string (if not parsed as list)
+        if isinstance(config.get('source_lists'), str):
+            source_lists = config['source_lists']
+            if source_lists:
+                config['source_lists'] = [lst.strip() for lst in source_lists.split(',') if lst.strip()]
+            else:
+                config['source_lists'] = []
+
+        # Resolve credential paths relative to script directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        for key in ('google_credentials_file', 'google_token_file'):
+            if config.get(key) and not os.path.isabs(config[key]):
+                config[key] = os.path.join(script_dir, config[key])
+
+        return config
 
     def _load_mappings(self) -> Dict:
         """Load task ID mappings from file."""
@@ -251,7 +286,7 @@ class TRMNLSyncManager:
         Returns:
             TRMNL list ID or None if not found
         """
-        trmnl_list_name = self.config['sync_settings'].get('trmnl_list_name', 'TRMNL')
+        trmnl_list_name = self.config.get('trmnl_list_name', 'TRMNL')
         all_lists = self.get_all_task_lists()
 
         for task_list in all_lists:
@@ -410,8 +445,8 @@ class TRMNLSyncManager:
             Dictionary mapping list_id -> list of tagged tasks
         """
         all_lists = self.get_all_task_lists()
-        source_lists = self.config['sync_settings'].get('source_lists', [])
-        trmnl_list_name = self.config['sync_settings'].get('trmnl_list_name', 'TRMNL')
+        source_lists = self.config.get('source_lists', [])
+        trmnl_list_name = self.config.get('trmnl_list_name', 'TRMNL')
 
         # Filter to source lists if configured, exclude TRMNL list
         if source_lists:
@@ -553,7 +588,7 @@ class TRMNLSyncManager:
             interval_minutes: Override configured interval
         """
         if interval_minutes is None:
-            interval_minutes = self.config['sync_settings'].get('sync_interval_minutes', 15)
+            interval_minutes = self.config.get('sync_interval_minutes', 15)
 
         interval_seconds = interval_minutes * 60
         logging.info(f"Starting daemon mode (interval: {interval_minutes} minutes)")
