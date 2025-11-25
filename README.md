@@ -47,14 +47,15 @@ Implements repeat-after-completion functionality for Google Tasks.
 python3 gtasks-recurring.py --dry-run --verbose
 ```
 
-### 4. Starred Tasks to TRMNL Sync (`gtasks-trmnl.py`)
-Syncs tasks marked with ⭐ emoji from all Google Tasks lists into a consolidated "TRMNL" list.
+### 4. Tasks to TRMNL Sync (`gtasks-trmnl.py`)
+Syncs tasks tagged with `#trmnl` in their notes from all Google Tasks lists into a consolidated "TRMNL" list.
 
 **Key Features:**
-- Detects ⭐ emoji in task titles or notes
-- Removes ⭐ from TRMNL copies for clean display
+- Detects `#trmnl` hashtag in task notes (case-insensitive)
+- Removes `#trmnl` tag from TRMNL copies for clean display
 - One-way sync (original lists → TRMNL)
-- Auto-cleanup when tasks are un-starred, deleted, or completed
+- Auto-cleanup when tasks are untagged, deleted, or completed
+- Does not sync due dates (avoids duplicate calendar entries)
 - Perfect for TRMNL e-ink displays
 
 **Quick Start:**
@@ -188,7 +189,7 @@ python3 todoist-sync.py
 
 ### Workflow 3: TRMNL Display
 ```bash
-# Star important tasks across all lists with ⭐
+# Tag important tasks across all lists with #trmnl in notes
 # Sync to consolidated TRMNL list
 python3 gtasks-trmnl.py
 ```
@@ -211,8 +212,9 @@ python3 gtasks-trmnl.py            # Consolidate starred tasks
 
 ### gtasks-trmnl.py Notes
 - Requires pre-created "TRMNL" list in Google Tasks
-- Uses ⭐ emoji marker (Google Tasks API doesn't expose native starred status)
-- Automatically removes ⭐ from TRMNL copies for clean display
+- Uses `#trmnl` hashtag in task notes (case-insensitive)
+- Automatically removes `#trmnl` tag from TRMNL copies for clean display
+- Does not sync due dates to avoid duplicate calendar entries
 
 ### gtasks-recurring.py Integration
 - Works seamlessly with tasks synced from Todoist

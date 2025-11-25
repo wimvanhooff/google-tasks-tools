@@ -6,28 +6,26 @@ This repository contains a collection of tools for working with Google Tasks:
 1. **Todoist-Google Tasks Sync Tool** (`todoist-sync.py`) - Bidirectional synchronization between Todoist and Google Tasks
 2. **Todoist to Google Tasks Project Sync** (`todoist-to-gtasks.py`) - One-way sync from Todoist projects to Google Tasks lists
 3. **Recurring Tasks Tool** (`gtasks-recurring.py`) - Implements repeat-after-completion functionality for Google Tasks
-4. **Starred Tasks to TRMNL Sync** (`gtasks-trmnl.py`) - Syncs starred tasks from all lists into a consolidated TRMNL display list
+4. **Tasks to TRMNL Sync** (`gtasks-trmnl.py`) - Syncs tasks tagged with #trmnl from all lists into a consolidated TRMNL display list
 
 Additional Google Tasks utilities may be added in future development.
 
 ---
 
-## Starred Tasks to TRMNL Sync
+## Tasks to TRMNL Sync
 
 ### Overview
-This tool syncs tasks marked with ⭐ emoji from all Google Tasks lists into a dedicated "TRMNL" list. This provides a consolidated view of all your starred/important tasks for display on TRMNL devices or other purposes.
-
-**Important Note**: Google Tasks API doesn't expose native starred status despite this feature being available in the UI since 2022. This tool uses ⭐ emoji as a marker in task titles or notes as a workaround.
+This tool syncs tasks tagged with `#trmnl` in their notes from all Google Tasks lists into a dedicated "TRMNL" list. This provides a consolidated view of tagged tasks for display on TRMNL devices or other purposes.
 
 ### Core Functionality
 
 #### Sync Behavior
-- **Starring Method**: Detects ⭐ emoji in task title or notes
+- **Tagging Method**: Detects `#trmnl` hashtag in task notes (case-insensitive)
 - **Direction**: One-way sync (source lists → TRMNL list)
-- **Scope**: All active (incomplete) starred tasks from all lists
-- **Star Emoji Handling**: Removes ⭐ from TRMNL copies for clean display
-- **Updates**: Syncs changes to title, notes, and due date
-- **Cleanup**: Automatically removes TRMNL copies when original is un-starred, deleted, or completed
+- **Scope**: All active (incomplete) tagged tasks from all lists
+- **Tag Handling**: Removes `#trmnl` from TRMNL copies for clean display
+- **Updates**: Syncs changes to title and notes (due dates are NOT synced to avoid duplicate calendar entries)
+- **Cleanup**: Automatically removes TRMNL copies when original is untagged, deleted, or completed
 - **Completion**: TRMNL list is read-only - completions don't sync back to originals
 - **List Exclusion**: Never scans the TRMNL list itself (prevents infinite loops)
 
@@ -38,43 +36,43 @@ Main orchestrator that handles:
 - Configuration management (`gtasks-trmnl.conf`)
 - Task ID mappings (`gtasks-trmnl-mappings.json`)
 - Google Tasks API initialization (OAuth2)
-- Starred task detection and sync logic
+- Tagged task detection and sync logic
 - Cleanup of stale TRMNL tasks
 
 ##### Core Methods
 
-**`is_task_starred(task)`** - Star detection
-- Checks for ⭐ emoji in title or notes
+**`is_task_tagged(task)`** - Tag detection
+- Checks for `#trmnl` hashtag in notes (case-insensitive)
 - Returns boolean decision
 
-**`strip_star_emoji(text)`** - Text cleaning
-- Removes ⭐ from text for clean TRMNL display
+**`strip_trmnl_tag(text)`** - Text cleaning
+- Removes `#trmnl` tag from text for clean TRMNL display
 - Trims excess whitespace
 
-**`get_all_starred_tasks()`** - Task discovery
+**`get_all_tagged_tasks()`** - Task discovery
 - Scans all source lists (or configured subset)
 - Excludes TRMNL list itself
-- Returns dictionary of list_id → starred tasks
+- Returns dictionary of list_id → tagged tasks
 - Only includes active (incomplete) tasks
 
-**`sync_starred_tasks()`** - Main sync logic
-- For each starred task:
-  - If unmapped: Create duplicate in TRMNL (without ⭐)
+**`sync_tagged_tasks()`** - Main sync logic
+- For each tagged task:
+  - If unmapped: Create duplicate in TRMNL (without `#trmnl`)
   - If mapped: Check for updates, sync if changed
 - Tracks all valid original task IDs for cleanup
 
 **`cleanup_trmnl_tasks(valid_original_ids)`** - Stale task removal
 - Deletes TRMNL tasks whose originals are:
-  - No longer starred (⭐ removed)
+  - No longer tagged (`#trmnl` removed)
   - Deleted from source list
   - Completed in source list
 - Also deletes completed TRMNL tasks
 - Updates mappings automatically
 
 **`task_needs_update(original, trmnl)`** - Change detection
-- Compares cleaned title, notes, and due date
+- Compares title and cleaned notes (due dates are not compared)
 - Returns True if TRMNL copy needs updating
-- Strips ⭐ from original before comparison
+- Strips `#trmnl` from original notes before comparison
 
 **`get_trmnl_list_id()`** - List lookup
 - Finds TRMNL list by configured name
@@ -114,14 +112,14 @@ A template file (`gtasks-trmnl.conf.template`) is provided with helpful comments
 }
 ```
 
-#### How to Star Tasks
+#### How to Tag Tasks
 
-Since the Google Tasks API doesn't expose native starred status, use one of these methods:
+Add `#trmnl` anywhere in the task's notes/description field (case-insensitive):
 
-1. **In title**: `⭐ Important meeting`
-2. **In notes**: Add `⭐` anywhere in the task description/notes
+- **Example**: `Remember to do this #trmnl`
+- **Example**: `#trmnl Important task notes here`
 
-The tool scans both fields. The ⭐ emoji will be automatically removed from the TRMNL copy for clean display.
+The `#trmnl` tag will be automatically removed from the TRMNL copy for clean display.
 
 #### Error Handling & Logging
 - Dual logging: INFO/WARNING to stdout, ERROR/CRITICAL to stderr
@@ -203,53 +201,34 @@ python gtasks-trmnl.py --daemon --verbose
    - Safely preview what would be synced without making any changes
    - Verbose mode shows detailed processing information
 
-6. **Star Some Tasks**:
-   - Add ⭐ emoji to task titles or notes in any list
+6. **Tag Some Tasks**:
+   - Add `#trmnl` to task notes in any list
    - Run the tool to sync them to TRMNL list
 
 ### Example Workflow
 
-1. In your "Work" list, create task: "⭐ Finish presentation"
-2. In your "Personal" list, add ⭐ to notes of "Buy groceries"
+1. In your "Work" list, create task "Finish presentation" with notes: `Need to complete slides #trmnl`
+2. In your "Personal" list, add `#trmnl` to notes of "Buy groceries"
 3. Run `python gtasks-trmnl.py`
-4. Both tasks now appear in TRMNL list as:
-   - "Finish presentation" (⭐ removed)
-   - "Buy groceries" (⭐ removed)
+4. Both tasks now appear in TRMNL list with clean notes (`#trmnl` removed)
 5. Complete "Finish presentation" in the Work list
 6. Run sync again - task is removed from TRMNL
-7. Remove ⭐ from "Buy groceries"
+7. Remove `#trmnl` from "Buy groceries" notes
 8. Run sync again - task is removed from TRMNL
 
 ### Use Cases
 
 **When to use this tool:**
-- **TRMNL Display**: Consolidate starred tasks for display on TRMNL e-ink devices
+- **TRMNL Display**: Consolidate tagged tasks for display on TRMNL e-ink devices
 - **Quick View**: Single list showing all important tasks across multiple projects/lists
-- **Focus List**: Create a "what matters today" view from starred tasks
+- **Focus List**: Create a "what matters today" view from tagged tasks
 - **Cross-List Priority**: Track high-priority items regardless of which list they're in
 
 **Common Workflows:**
-1. **Daily Focus**: Star today's priorities across all lists, view consolidated in TRMNL
-2. **TRMNL Device**: Sync starred tasks to display on e-ink device for at-a-glance viewing
-3. **VIP Tasks**: Use ⭐ for critical items that need visibility regardless of organization
-4. **Temporary Priority**: Star tasks temporarily, they auto-remove from TRMNL when un-starred
-
-### API Limitation Details
-
-**Why use ⭐ emoji instead of native stars?**
-
-Google Tasks added a starred/favorite feature to the UI (web and mobile apps) in June 2022, but as of January 2025, this feature is **not exposed in the Google Tasks API**. The API provides no field or filter for starred status.
-
-This limitation has been documented in:
-- [Google Tasks API Reference](https://developers.google.com/tasks/reference/rest/v1/tasks) - No starred field
-- Stack Overflow discussions confirming the limitation
-- Community requests for API support
-
-**Workaround**: Using ⭐ emoji marker in title/notes fields (which ARE accessible via API) provides equivalent functionality with the following advantages:
-- Works reliably across all platforms
-- API-accessible for automation
-- Visual indicator in the UI
-- Easy to add/remove manually
+1. **Daily Focus**: Tag today's priorities across all lists with `#trmnl`, view consolidated in TRMNL
+2. **TRMNL Device**: Sync tagged tasks to display on e-ink device for at-a-glance viewing
+3. **VIP Tasks**: Use `#trmnl` for critical items that need visibility regardless of organization
+4. **Temporary Priority**: Tag tasks temporarily, they auto-remove from TRMNL when untagged
 
 ### Automation with Cron
 
