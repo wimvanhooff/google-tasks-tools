@@ -17,8 +17,11 @@
 
 set -e
 
+# Change to script directory (needed for cron which runs from home directory)
+cd "$(dirname "$0")"
+
 # Activate virtual environment
-source todoist-sync-env/bin/activate
+source ./todoist-sync-env/bin/activate
 
 # Check if a script argument was provided
 if [ $# -eq 0 ]; then

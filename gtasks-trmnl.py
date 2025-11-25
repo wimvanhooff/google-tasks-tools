@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
 """
-Google Tasks Starred Tasks to TRMNL List Sync Tool
+Google Tasks to TRMNL List Sync Tool
 
-Syncs tasks marked with ⭐ emoji or * asterisk from all Google Tasks lists into
-a dedicated "TRMNL" list. The TRMNL list acts as a consolidated view of all
-starred tasks for display on TRMNL devices.
+Syncs tasks tagged with #trmnl in their description from all Google Tasks lists
+into a dedicated "TRMNL" list. The TRMNL list acts as a consolidated view of
+tagged tasks for display on TRMNL devices.
 
-Note: Google Tasks API doesn't expose native starred status, so this tool
-uses ⭐ emoji or * asterisk as markers in task titles or notes.
-
-Starring methods:
-- ⭐ emoji at the end of title or notes (e.g., "Important task ⭐")
-- * asterisk at the end of title or notes (e.g., "Important task *")
+Tagging method:
+- Add #trmnl anywhere in the task description/notes (e.g., "Remember to do this #trmnl")
 """
 
 import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -219,45 +216,33 @@ class TRMNLSyncManager:
             logging.error(f"Failed to retrieve tasks from list {list_id}: {e}")
             return []
 
-    def is_task_starred(self, task: Dict) -> bool:
-        """Check if a task is marked with star emoji or asterisk at the end.
+    def is_task_tagged(self, task: Dict) -> bool:
+        """Check if a task is tagged with #trmnl in its description.
 
         Args:
             task: Task dictionary from Google Tasks API
 
         Returns:
-            True if task has ⭐ or * at the end of title or notes
+            True if task has #trmnl tag in notes (case-insensitive)
         """
-        title = task.get('title', '')
         notes = task.get('notes', '')
 
-        # Check for star emoji at the end of title or notes
-        if title.strip().endswith('⭐') or notes.strip().endswith('⭐'):
-            return True
+        # Check for #trmnl tag (case-insensitive)
+        return '#trmnl' in notes.lower()
 
-        # Check for asterisk at the end of title or notes (after stripping whitespace)
-        if title.strip().endswith('*') or notes.strip().endswith('*'):
-            return True
-
-        return False
-
-    def strip_star_emoji(self, text: str) -> str:
-        """Remove star emoji and trailing asterisk from text for clean TRMNL display.
+    def strip_trmnl_tag(self, text: str) -> str:
+        """Remove #trmnl tag from text for clean TRMNL display.
 
         Args:
-            text: Original text with potential star emoji or asterisk at the end
+            text: Original text with potential #trmnl tag
 
         Returns:
-            Text with star emoji and trailing asterisk removed, whitespace cleaned
+            Text with #trmnl tag removed, whitespace cleaned
         """
-        # Remove star emoji
-        text = text.replace('⭐', '')
-
-        # Remove trailing asterisk (and any preceding whitespace)
-        text = text.strip()
-        if text.endswith('*'):
-            text = text[:-1].strip()
-
+        # Remove #trmnl tag (case-insensitive) and clean up whitespace
+        text = re.sub(r'#trmnl\b', '', text, flags=re.IGNORECASE)
+        # Clean up any double spaces or leading/trailing whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
         return text
 
     def get_trmnl_list_id(self) -> Optional[str]:
@@ -282,37 +267,33 @@ class TRMNLSyncManager:
         """Check if TRMNL task needs to be updated based on original.
 
         Args:
-            original: Original task with star emoji
+            original: Original task with #trmnl tag
             trmnl: Current TRMNL task
 
         Returns:
             True if TRMNL task should be updated
         """
-        # Compare cleaned title
-        original_title = self.strip_star_emoji(original.get('title', ''))
+        # Compare title (title is not modified)
+        original_title = original.get('title', '')
         trmnl_title = trmnl.get('title', '')
         if original_title != trmnl_title:
             logging.debug(f"Title changed: '{trmnl_title}' -> '{original_title}'")
             return True
 
-        # Compare notes (also strip star from original)
-        original_notes = self.strip_star_emoji(original.get('notes', ''))
+        # Compare notes (strip #trmnl tag from original for comparison)
+        original_notes = self.strip_trmnl_tag(original.get('notes', ''))
         trmnl_notes = trmnl.get('notes', '')
         if original_notes != trmnl_notes:
             logging.debug(f"Notes changed for task '{trmnl_title}'")
             return True
 
-        # Compare due dates
-        original_due = original.get('due', '')
-        trmnl_due = trmnl.get('due', '')
-        if original_due != trmnl_due:
-            logging.debug(f"Due date changed for task '{trmnl_title}'")
-            return True
+        # Note: Due dates are intentionally NOT compared since we don't sync them
+        # to TRMNL list (to avoid duplicate calendar entries)
 
         return False
 
     def create_trmnl_task(self, original_task: Dict, original_list_id: str, trmnl_list_id: str) -> Optional[str]:
-        """Create a new task in TRMNL list (duplicate of original without star).
+        """Create a new task in TRMNL list (duplicate of original without #trmnl tag).
 
         Args:
             original_task: Original task to duplicate
@@ -323,17 +304,16 @@ class TRMNLSyncManager:
             Created task ID or None on failure
         """
         original_id = original_task['id']
-        clean_title = self.strip_star_emoji(original_task.get('title', ''))
-        clean_notes = self.strip_star_emoji(original_task.get('notes', ''))
+        clean_title = original_task.get('title', '')
+        clean_notes = self.strip_trmnl_tag(original_task.get('notes', ''))
 
         task_body = {
             'title': clean_title,
             'notes': clean_notes
         }
 
-        # Copy due date if present
-        if 'due' in original_task:
-            task_body['due'] = original_task['due']
+        # Note: Due dates are intentionally NOT synced to TRMNL list
+        # to avoid duplicate calendar entries
 
         if self.dry_run:
             logging.info(f"[DRY-RUN] Would create TRMNL task: '{clean_title}'")
@@ -368,8 +348,8 @@ class TRMNLSyncManager:
         Returns:
             True if update successful
         """
-        clean_title = self.strip_star_emoji(original_task.get('title', ''))
-        clean_notes = self.strip_star_emoji(original_task.get('notes', ''))
+        clean_title = original_task.get('title', '')
+        clean_notes = self.strip_trmnl_tag(original_task.get('notes', ''))
 
         task_body = {
             'id': trmnl_task['id'],
@@ -377,9 +357,8 @@ class TRMNLSyncManager:
             'notes': clean_notes
         }
 
-        # Copy due date if present
-        if 'due' in original_task:
-            task_body['due'] = original_task['due']
+        # Note: Due dates are intentionally NOT synced to TRMNL list
+        # to avoid duplicate calendar entries
 
         if self.dry_run:
             logging.info(f"[DRY-RUN] Would update TRMNL task: '{clean_title}'")
@@ -424,11 +403,11 @@ class TRMNLSyncManager:
         except Exception as e:
             logging.error(f"Failed to delete TRMNL task {trmnl_task_id}: {e}")
 
-    def get_all_starred_tasks(self) -> Dict[str, List[Dict]]:
-        """Scan all source lists for starred tasks.
+    def get_all_tagged_tasks(self) -> Dict[str, List[Dict]]:
+        """Scan all source lists for tasks tagged with #trmnl.
 
         Returns:
-            Dictionary mapping list_id -> list of starred tasks
+            Dictionary mapping list_id -> list of tagged tasks
         """
         all_lists = self.get_all_task_lists()
         source_lists = self.config['sync_settings'].get('source_lists', [])
@@ -444,8 +423,8 @@ class TRMNLSyncManager:
             lists_to_scan = [l for l in all_lists if l.get('title') != trmnl_list_name]
             logging.info(f"Scanning all {len(lists_to_scan)} list(s) (excluding TRMNL)")
 
-        starred_tasks_by_list = {}
-        total_starred = 0
+        tagged_tasks_by_list = {}
+        total_tagged = 0
 
         for task_list in lists_to_scan:
             list_id = task_list['id']
@@ -453,19 +432,19 @@ class TRMNLSyncManager:
 
             # Get active tasks only (not completed)
             tasks = self.get_tasks_in_list(list_id, include_completed=False)
-            starred_tasks = [t for t in tasks if self.is_task_starred(t)]
+            tagged_tasks = [t for t in tasks if self.is_task_tagged(t)]
 
-            if starred_tasks:
-                starred_tasks_by_list[list_id] = starred_tasks
-                total_starred += len(starred_tasks)
-                logging.info(f"  '{list_title}': {len(starred_tasks)} starred task(s)")
+            if tagged_tasks:
+                tagged_tasks_by_list[list_id] = tagged_tasks
+                total_tagged += len(tagged_tasks)
+                logging.info(f"  '{list_title}': {len(tagged_tasks)} tagged task(s)")
 
-        logging.info(f"Total starred tasks found: {total_starred}")
-        return starred_tasks_by_list
+        logging.info(f"Total tagged tasks found: {total_tagged}")
+        return tagged_tasks_by_list
 
-    def sync_starred_tasks(self):
-        """Main sync logic: sync all starred tasks to TRMNL list."""
-        logging.info("Starting starred tasks sync...")
+    def sync_tagged_tasks(self):
+        """Main sync logic: sync all #trmnl tagged tasks to TRMNL list."""
+        logging.info("Starting tagged tasks sync...")
 
         # Get TRMNL list ID
         trmnl_list_id = self.get_trmnl_list_id()
@@ -473,18 +452,18 @@ class TRMNLSyncManager:
             logging.error("Cannot proceed without TRMNL list")
             return
 
-        # Get all starred tasks
-        starred_tasks_by_list = self.get_all_starred_tasks()
+        # Get all tagged tasks
+        tagged_tasks_by_list = self.get_all_tagged_tasks()
 
         # Track which original task IDs we've seen (to detect deletions later)
         seen_original_ids = set()
 
-        # Process each starred task
+        # Process each tagged task
         created_count = 0
         updated_count = 0
 
-        for list_id, starred_tasks in starred_tasks_by_list.items():
-            for task in starred_tasks:
+        for list_id, tagged_tasks in tagged_tasks_by_list.items():
+            for task in tagged_tasks:
                 original_id = task['id']
                 seen_original_ids.add(original_id)
 
@@ -526,11 +505,11 @@ class TRMNLSyncManager:
         logging.info("Sync complete")
 
     def cleanup_trmnl_tasks(self, trmnl_list_id: str, valid_original_ids: set):
-        """Remove TRMNL tasks whose originals are gone/un-starred/completed.
+        """Remove TRMNL tasks whose originals are gone/untagged/completed.
 
         Args:
             trmnl_list_id: TRMNL list ID
-            valid_original_ids: Set of original task IDs that still exist and are starred
+            valid_original_ids: Set of original task IDs that still exist and are tagged
         """
         logging.info("Cleaning up stale TRMNL tasks...")
 
@@ -546,7 +525,7 @@ class TRMNLSyncManager:
             if trmnl_id in self.mappings['trmnl_to_original']:
                 original_id = self.mappings['trmnl_to_original'][trmnl_id]
 
-                # Delete if original is no longer valid (un-starred, deleted, or completed)
+                # Delete if original is no longer valid (untagged, deleted, or completed)
                 if original_id not in valid_original_ids:
                     logging.info(f"Original task no longer valid, deleting: '{trmnl_task.get('title', '')}'")
                     self.delete_trmnl_task(trmnl_id, trmnl_list_id)
@@ -565,7 +544,7 @@ class TRMNLSyncManager:
 
     def run_once(self):
         """Run a single sync cycle."""
-        self.sync_starred_tasks()
+        self.sync_tagged_tasks()
 
     def run_daemon(self, interval_minutes: Optional[int] = None):
         """Run continuously, syncing at regular intervals.
@@ -581,7 +560,7 @@ class TRMNLSyncManager:
 
         while True:
             try:
-                self.sync_starred_tasks()
+                self.sync_tagged_tasks()
                 logging.info(f"Sleeping for {interval_minutes} minutes...")
                 time.sleep(interval_seconds)
             except KeyboardInterrupt:
@@ -596,8 +575,8 @@ class TRMNLSyncManager:
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description='Google Tasks Starred Tasks to TRMNL List Sync - '
-                    'Syncs tasks marked with ⭐ emoji to TRMNL display list'
+        description='Google Tasks to TRMNL List Sync - '
+                    'Syncs tasks tagged with #trmnl in description to TRMNL display list'
     )
     parser.add_argument(
         '--daemon',
