@@ -1,6 +1,6 @@
 {
   "_comment_1": "=== Google Tasks Recurring Task Manager Configuration ===",
-  "_comment_2": "Copy this file to 'recurring_config.json' and customize as needed",
+  "_comment_2": "Copy this file to 'gtasks-recurring.conf' and customize as needed",
   "_comment_3": "",
 
   "_comment_google": "Google API credentials - download from Google Cloud Console",

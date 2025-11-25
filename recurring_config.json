@@ -1,8 +1,0 @@
-{
-  "google_credentials_file": "credentials.json",
-  "google_token_file": "token.json",
-  "settings": {
-    "check_interval_minutes": 15,
-    "target_lists": []
-  }
-}
