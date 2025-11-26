@@ -7,7 +7,7 @@
 #   todoist-sync        - Bidirectional sync between Todoist and Google Tasks
 #   todoist-to-gtasks   - One-way sync from Todoist projects to Google Tasks lists
 #   gtasks-recurring    - Handle recurring tasks in Google Tasks
-#   gtasks-trmnl        - Sync starred tasks to TRMNL list
+#   gtasks-trmnl        - Sync tagged tasks to TRMNL list
 #
 # Examples:
 #   ./run.sh todoist-sync --verbose
@@ -31,7 +31,7 @@ if [ $# -eq 0 ]; then
     echo "  todoist-sync        - Bidirectional sync between Todoist and Google Tasks"
     echo "  todoist-to-gtasks   - One-way sync from Todoist projects to Google Tasks lists"
     echo "  gtasks-recurring    - Handle recurring tasks in Google Tasks"
-    echo "  gtasks-trmnl        - Sync starred tasks to TRMNL list"
+    echo "  gtasks-trmnl        - Sync tagged tasks to TRMNL list"
     echo ""
     echo "Examples:"
     echo "  $0 todoist-sync --verbose"
